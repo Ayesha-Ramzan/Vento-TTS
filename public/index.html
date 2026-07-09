@@ -1234,9 +1234,8 @@ const App = () => {
   const renameRecording = (id, newTitle) => setRecordings(prev => prev.map(r => r.id === id ? { ...r, title: newTitle } : r));
 
   const navItems = [
-    { id: 'assistant', label: 'Voice Assistant', icon: Icons.Mic },
     { id: 'tts', label: 'Text to Speech', icon: Icons.Type },
-    
+     { id: 'assistant', label: 'Voice Assistant', icon: Icons.Mic },
     { id: 'recordings', label: 'My Recordings', icon: Icons.History },
     { id: 'settings', label: 'Settings', icon: Icons.Settings },
   ];
