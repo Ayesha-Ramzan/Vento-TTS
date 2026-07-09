@@ -14,8 +14,8 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, 'uploads');
-const recordingsDir = path.join(__dirname, 'recordings');
+const uploadsDir = '/tmp/uploads';
+const recordingsDir = '/tmp/recordings';
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 if (!fs.existsSync(recordingsDir)) fs.mkdirSync(recordingsDir, { recursive: true });
 
