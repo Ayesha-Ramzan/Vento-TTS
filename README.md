@@ -1,74 +1,161 @@
-# Vento-TTS
+# 🎙️ Vento — Voice Studio
 
-Vento Text-to-Speech Backend API. This project provides a robust backend for generating text-to-speech audio, changing accents, and managing audio recordings.
+**Vento** is a full-stack Text-to-Speech (TTS) web application. It lets you convert text into natural speech using the browser's Web Speech API, scan text from your camera using OCR, interact with a voice assistant, and manage all your generated recordings — all in a polished, modern UI.
 
-## Features
+---
 
-- **Text-to-Speech (TTS) Generation**: Queue and store generated TTS audio. (Actual synthesis leverages frontend Web Speech API or external services).
-- **Accent Conversion**: API to simulate converting audio from a source accent to a target accent.
-- **Recording Management**: Full CRUD (Create, Read, Update, Delete) operations for your generated audio files.
-- **Multi-Language Support**: Built-in support for numerous languages, voices, and accents.
-- **File Uploads**: Handles temporary file uploads (e.g., .txt, .pdf, .wav) using Multer.
+## ✨ Features
 
-## Tech Stack
+| Feature | Description |
+|---|---|
+| 🔊 **Text to Speech** | Type or paste text, choose a language & voice, and generate speech instantly |
+| 🎙️ **Voice Assistant** | Speak a question, get a spoken answer (Jarvis-style) |
+| 📷 **Camera OCR** | Point your camera at any text and scan it directly into the TTS editor |
+| 📁 **My Recordings** | Save, rename, play, download, and delete all generated audio |
+| 🌍 **14 Languages** | English, Urdu, Arabic, Hindi, Spanish, French, German, Chinese, Japanese, Korean, Portuguese, Russian, Italian, Turkish |
+| 🌙 **Dark Mode** | Toggle between Light and Dark themes |
+| 📱 **Responsive Design** | Works on desktop and mobile |
 
-- **Node.js**: JavaScript runtime environment.
-- **Express.js**: Fast, unopinionated, minimalist web framework.
-- **Multer**: Middleware for handling `multipart/form-data` (file uploads).
-- **UUID**: Unique identifier generation for audio files.
+---
 
-## Project Structure
+## 🗂️ Project Structure
 
-- `server.js`: The main Express server entry point.
-- `start.bat`: Quick start script for Windows users.
-- `public/`: Directory containing static frontend files served by the application.
-- `recordings/`: Auto-generated directory where synthesized audio files and conversions are stored.
-- `uploads/`: Auto-generated directory for handling temporary file uploads.
-- `node_modules/`: Auto-generated directory containing all external packages.
-- `myenv/`: Python virtual environment (for supplementary scripts, if any).
+```
+vento/
+├── public/
+│   └── index.html       # Single-page React app (CDN-based, no build step)
+├── recordings/          # Auto-created: stores recording metadata
+├── uploads/             # Auto-created: handles temp file uploads
+├── server.js            # Express backend (REST API)
+├── package.json         # Node.js dependencies
+├── start.bat            # Windows one-click launcher
+└── README.md
+```
 
-## Installation & Setup
+---
 
-1. **Prerequisites**: Ensure you have [Node.js](https://nodejs.org/) installed on your machine.
-2. **Install Dependencies**:
-   Open a terminal in the project directory and run:
-   ```bash
-   npm install
-   ```
-3. **Start the Server**:
-   You can start the server in two ways:
-   - Run the provided batch script (Windows only): Double-click `start.bat`
-   - Or run via npm:
-     ```bash
-     npm start
-     ```
-   For development with auto-reload:
-   ```bash
-   npm run dev
-   ```
+## ⚙️ Tech Stack
 
-The server will start on `http://localhost:3001` (or your configured `PORT`).
+**Frontend**
+- React 18 (via CDN, no build step required)
+- Babel Standalone (JSX transpilation in browser)
+- Tailwind CSS (via CDN)
+- Web Speech API (TTS & Speech Recognition)
+- Tesseract.js (Camera OCR)
 
-## API Endpoints
+**Backend**
+- Node.js + Express.js
+- Multer (file uploads)
+- UUID (unique ID generation)
 
-### Core Features
-- `POST /api/tts/generate` - Generate new Text-to-Speech audio.
-- `POST /api/accent/convert` - Convert audio from one accent to another.
+---
 
-### Recordings Management
-- `GET /api/recordings` - Fetch all recordings (supports `search` and `filter` queries).
-- `GET /api/recordings/:id` - Fetch a specific recording by ID.
-- `PUT /api/recordings/:id` - Update a recording (e.g., change title).
-- `DELETE /api/recordings/:id` - Delete a recording.
-- `GET /api/recordings/:filename` - Stream the audio file.
+## 🚀 Installation & Setup
+
+### Prerequisites
+- [Node.js](https://nodejs.org/) v16 or higher
+
+### 1. Install dependencies
+```bash
+npm install
+```
+
+### 2. Start the server
+
+**Option A — One click (Windows):**
+Double-click `start.bat`
+
+**Option B — npm:**
+```bash
+npm start
+```
+
+**Option C — Development mode (auto-reload):**
+```bash
+npm run dev
+```
+
+### 3. Open the app
+Navigate to: **http://localhost:3001**
+
+---
+
+## 🌐 API Endpoints
+
+### Text to Speech
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/tts/generate` | Queue a TTS generation and save to recordings |
+
+**Request body:**
+```json
+{
+  "text": "Hello world",
+  "language": "en",
+  "voice": "en-f-1",
+  "voiceName": "Sarah"
+}
+```
+
+### Recordings
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/recordings` | List all recordings (supports `?search=` and `?filter=`) |
+| `GET` | `/api/recordings/:id` | Get a single recording |
+| `PUT` | `/api/recordings/:id` | Rename a recording |
+| `DELETE` | `/api/recordings/:id` | Delete a recording |
 
 ### Metadata
-- `GET /api/languages` - Get a list of supported languages.
-- `GET /api/voices/:language` - Get available voices for a specific language.
-- `GET /api/accents` - Get a list of available accents.
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/languages` | Get all supported languages |
+| `GET` | `/api/voices/:language` | Get voices for a specific language |
+| `GET` | `/api/health` | Health check |
 
-### System
-- `GET /api/health` - Check API health status.
+---
 
-## License
-MIT License
+## 🎤 How to Use
+
+### Text to Speech
+1. Open **Text to Speech** from the sidebar
+2. Type or paste your text (up to 5,000 characters)
+3. Select a **language** and **voice**
+4. Click **Preview** to hear it immediately
+5. Click **Generate & Save** to save it to My Recordings
+
+### Camera OCR
+1. Click **Scan Text** in the TTS editor
+2. Allow camera access when prompted
+3. Point the camera at printed or handwritten text
+4. Click **Capture & Scan** — the detected text is added to your editor
+
+### Voice Assistant
+1. Open **Voice Assistant** from the sidebar
+2. Click the microphone button and speak your question
+3. Click **Get Answer** — the assistant speaks the response aloud
+4. You can also type a question manually in the text area
+
+### My Recordings
+- **Play** any saved recording using the play button
+- **Rename** a recording by clicking the pencil icon
+- **Download** the text content
+- **Copy** the text to clipboard via the share button
+- **Delete** recordings you no longer need
+
+---
+
+## 🔧 Troubleshooting
+
+| Problem | Solution |
+|---|---|
+| White screen on load | Ensure `npm start` is running and visit `http://localhost:3001` |
+| Camera not working for OCR | Allow camera permission in browser settings |
+| No speech plays | Check that your browser supports Web Speech API (Chrome/Edge recommended) |
+| Backend Offline badge shows | Server is not running — run `npm start` |
+| Voice not matching language | Your OS may not have voices for that language installed |
+
+---
+
+## 📄 License
+
+MIT License — free to use, modify, and distribute.

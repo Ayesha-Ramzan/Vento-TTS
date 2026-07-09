@@ -9,7 +9,6 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 <script>
 tailwind.config = {
@@ -63,7 +62,7 @@ tailwind.config = {
 /* live speaking word highlight */
 .speaking-word { background: #1E3A8A; color: white; border-radius: 3px; padding: 0 2px; }
 </style>
-<base target="_blank">
+
 </head>
 <body class="bg-sand font-sans text-charcoal overflow-hidden">
 <div id="root"></div>
@@ -286,13 +285,7 @@ const AnimatedWaveBackground = () => {
   }, []);
 
   return (
-    <div className="fixed top-0 left-0 w-full h-full pointer-events-none z-0 overflow-hidden">
-      <img 
-        src="hero_combined.png" 
-        alt="" 
-        className="absolute top-0 left-0 w-full h-full object-cover opacity-40"
-        style={{ filter: 'blur(1px)' }}
-      />
+    <div className="fixed top-0 left-0 w-full h-full pointer-events-none z-0 overflow-hidden" style={{ background: 'linear-gradient(135deg, #F5F1EB 0%, #E8E2D9 40%, #D4C9E0 100%)' }}>
       <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
     </div>
   );
@@ -686,6 +679,7 @@ const TextToSpeech = ({ onSave, onToast }) => {
           </div>
         </div>
       )}
+      {showOCR && <CameraOCR onScan={handleOCRScan} onClose={() => setShowOCR(false)} onToast={onToast} />}
     </div>
   );
 };
@@ -696,13 +690,13 @@ const TextToSpeech = ({ onSave, onToast }) => {
 const CameraOCR = ({ onScan, onClose, onToast }) => {
   const videoRef = React.useRef(null);
   const canvasRef = React.useRef(null);
+  const streamRef = React.useRef(null);
   const [isScanning, setIsScanning] = React.useState(false);
-  const [stream, setStream] = React.useState(null);
 
   React.useEffect(() => {
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
       .then(s => {
-        setStream(s);
+        streamRef.current = s;
         if (videoRef.current) videoRef.current.srcObject = s;
       })
       .catch(err => {
@@ -710,7 +704,7 @@ const CameraOCR = ({ onScan, onClose, onToast }) => {
         onClose();
       });
     return () => {
-      if (stream) stream.getTracks().forEach(t => t.stop());
+      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
     };
   }, []);
 
@@ -723,7 +717,6 @@ const CameraOCR = ({ onScan, onClose, onToast }) => {
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
     try {
       const result = await window.Tesseract.recognize(canvas.toDataURL('image/png'), 'eng');
       if (result.data.text.trim()) {
@@ -739,27 +732,27 @@ const CameraOCR = ({ onScan, onClose, onToast }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-warmWhite rounded-2xl p-6 max-w-lg w-full">
+    <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4">
+      <div className="bg-warmWhite rounded-2xl p-6 max-w-lg w-full shadow-2xl">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl font-display font-bold text-charcoal">Scan Text</h3>
+          <h3 className="text-xl font-display font-bold text-charcoal">Scan Text from Camera</h3>
           <button onClick={onClose} className="p-2 hover:bg-sand rounded-lg"><Icons.X s={20} /></button>
         </div>
+        <p className="text-xs text-charcoalLight mb-3">Point your camera at text and tap Capture.</p>
         <div className="relative rounded-xl overflow-hidden bg-black aspect-video mb-4">
-          <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
           <canvas ref={canvasRef} className="hidden" />
           {isScanning && (
-            <div className="absolute inset-0 bg-teal/20 flex flex-col items-center justify-center">
-              <Icons.Loader s={32} c="text-white animate-spin mb-2" />
-              <p className="text-white font-medium">Scanning...</p>
+            <div className="absolute inset-0 bg-teal/20 flex flex-col items-center justify-center gap-2">
+              <Icons.Loader s={32} c="text-white" />
+              <p className="text-white font-medium text-sm">Scanning for text...</p>
             </div>
           )}
         </div>
-        <button onClick={handleScan} disabled={isScanning} className="w-full py-3 bg-teal hover:bg-tealDark text-white rounded-xl font-medium transition-colors">
-          Capture & Scan
+        <button onClick={handleScan} disabled={isScanning} className="w-full py-3 bg-teal hover:bg-tealDark disabled:opacity-50 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2">
+          <Icons.Camera s={18} /> {isScanning ? 'Scanning...' : 'Capture & Scan'}
         </button>
       </div>
-      {showOCR && <CameraOCR onScan={handleOCRScan} onClose={() => setShowOCR(false)} onToast={onToast} />}
     </div>
   );
 };
