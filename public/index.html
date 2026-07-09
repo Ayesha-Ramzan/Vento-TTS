@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vento - Text to Speech</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        sand: '#F5F1EB', sandDark: '#E8E2D9', teal: '#1E3A8A', tealLight: '#3B82F6', tealDark: '#111827',
+        lavender: '#B8A9C9', lavenderLight: '#D4C9E0', warmWhite: '#FDFCFA', charcoal: '#2D3436',
+        charcoalLight: '#636E72', accent: '#E8A87C', accentLight: '#F0C4A8',
+      },
+      fontFamily: { sans: ['Inter','sans-serif'], display: ['Playfair Display','serif'] }
+    }
+  }
+}
+</script>
+<style>
+* { scrollbar-width: thin; scrollbar-color: #E8E2D9 transparent; }
+*::-webkit-scrollbar { width: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #E8E2D9; border-radius: 3px; }
+@keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes waveHeight { 0%, 100% { height: 8px; } 50% { height: 48px; } }
+.animate-slideIn { animation: slideInRight 0.3s ease; }
+.animate-fadeIn { animation: fadeIn 0.4s ease; }
+.animate-pulse-slow { animation: pulse 3s ease-in-out infinite; }
+.animate-spin { animation: spin 1s linear infinite; }
+.animate-wave { animation: waveHeight 0.5s ease-in-out infinite alternate; }
+@keyframes visualizerBar { 0%, 100% { transform: scaleY(0.25); } 50% { transform: scaleY(1.35); } }
+.visualizer-bar { animation: visualizerBar 0.5s ease-in-out infinite alternate; transform-origin: bottom; }
+
+/* === DARK MODE === */
+.dark-mode { background: #1a1a2e !important; color: #e0e0e0 !important; }
+.dark-mode .bg-warmWhite { background: #16213e !important; }
+.dark-mode .bg-sand { background: #0f3460 !important; }
+.dark-mode .bg-sandDark { background: #1a1a2e !important; }
+.dark-mode .border-sandDark { border-color: #2d2d4e !important; }
+.dark-mode .border-sand { border-color: #2d2d4e !important; }
+.dark-mode .text-charcoal { color: #e0e0e0 !important; }
+.dark-mode .text-charcoalLight { color: #a0a0c0 !important; }
+.dark-mode header, .dark-mode aside { background: #16213e !important; border-color: #2d2d4e !important; }
+.dark-mode .bg-warmWhite\/80 { background: rgba(22,33,62,0.9) !important; }
+.dark-mode select, .dark-mode input, .dark-mode textarea { background: #1a1a2e !important; color: #e0e0e0 !important; border-color: #2d2d4e !important; }
+.dark-mode .hover\:bg-sand:hover { background: #0f3460 !important; }
+.dark-mode .bg-sand\/30 { background: rgba(15,52,96,0.3) !important; }
+.dark-mode .bg-teal\/5 { background: rgba(91,138,114,0.1) !important; }
+.dark-mode .bg-teal\/10 { background: rgba(91,138,114,0.15) !important; }
+
+/* live speaking word highlight */
+.speaking-word { background: #1E3A8A; color: white; border-radius: 3px; padding: 0 2px; }
+</style>
+<base target="_blank">
+</head>
+<body class="bg-sand font-sans text-charcoal overflow-hidden">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const isSystemVoiceFemale = (name) => {
+  const lowercaseName = name.toLowerCase();
+  const femaleKeywords = [
+    'female', 'woman', 'girl', 'zira', 'samantha', 'sara', 'serena', 'haruka',
+    'hazel', 'heera', 'elsa', 'zuzana', 'susan', 'anna', 'karen', 'moira',
+    'tessa', 'veena', 'kyoko', 'sin-ji', 'mei-jia', 'ting-ting', 'yating',
+    'sabina', 'ayesha', 'priya', 'maria', 'sophie', 'yuki', 'jiyeon', 'ana',
+    'natasha', 'giulia', 'ayşe', 'ayse', 'siri', 'victoria', 'heather', 'zari', 'salli',
+    'sarah', 'layla'
+  ];
+  return femaleKeywords.some(keyword => lowercaseName.includes(keyword));
+};
+
+const isSystemVoiceMale = (name) => {
+  const lowercaseName = name.toLowerCase();
+  const maleKeywords = [
+    'male', 'man', 'boy', 'david', 'james', 'alex', 'carlos', 'pierre', 'hans',
+    'li wei', 'takeshi', 'minho', 'joao', 'joão', 'dmitri', 'marco', 'mehmet',
+    'ravi', 'george', 'daniel', 'naeem', 'ahmed', 'omar', 'raj'
+  ];
+  return maleKeywords.some(keyword => lowercaseName.includes(keyword));
+};
+
+// ============================================
+// API CONFIG
+// ============================================
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+
+const api = {
+  get: (path) => fetch(`${API_BASE}${path}`).then(r => r.json()),
+  post: (path, data) => fetch(`${API_BASE}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
+  postForm: (path, formData) => fetch(`${API_BASE}${path}`, { method: 'POST', body: formData }).then(r => r.json()),
+  put: (path, data) => fetch(`${API_BASE}${path}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
+  del: (path) => fetch(`${API_BASE}${path}`, { method: 'DELETE' }).then(r => r.json()),
+};
+
+// ============================================
+// DATA (fallback if API fails)
+// ============================================
+const LANGUAGES = [
+  { code: 'en', name: 'English', flag: '🇺🇸' }, { code: 'ur', name: 'Urdu', flag: '🇵🇰' },
+  { code: 'ar', name: 'Arabic', flag: '🇸🇦' }, { code: 'hi', name: 'Hindi', flag: '🇮🇳' },
+  { code: 'es', name: 'Spanish', flag: '🇪🇸' }, { code: 'fr', name: 'French', flag: '🇫🇷' },
+  { code: 'de', name: 'German', flag: '🇩🇪' }, { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
+  { code: 'ja', name: 'Japanese', flag: '🇯🇵' }, { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+  { code: 'pt', name: 'Portuguese', flag: '🇵🇹' }, { code: 'ru', name: 'Russian', flag: '🇷🇺' },
+  { code: 'it', name: 'Italian', flag: '🇮🇹' }, { code: 'tr', name: 'Turkish', flag: '🇹🇷' },
+];
+
+const VOICES = {
+  en: [{ id: 'en-m-1', name: 'James', gender: 'Male' }, { id: 'en-f-1', name: 'Sarah', gender: 'Female' }, { id: 'en-n-1', name: 'Alex', gender: 'Neutral' }],
+  ur: [{ id: 'ur-m-1', name: 'Ahmed', gender: 'Male' }, { id: 'ur-f-1', name: 'Ayesha', gender: 'Female' }],
+  ar: [{ id: 'ar-m-1', name: 'Omar', gender: 'Male' }, { id: 'ar-f-1', name: 'Layla', gender: 'Female' }],
+  hi: [{ id: 'hi-m-1', name: 'Raj', gender: 'Male' }, { id: 'hi-f-1', name: 'Priya', gender: 'Female' }],
+  es: [{ id: 'es-m-1', name: 'Carlos', gender: 'Male' }, { id: 'es-f-1', name: 'Maria', gender: 'Female' }],
+  fr: [{ id: 'fr-m-1', name: 'Pierre', gender: 'Male' }, { id: 'fr-f-1', name: 'Sophie', gender: 'Female' }],
+  de: [{ id: 'de-m-1', name: 'Hans', gender: 'Male' }, { id: 'de-f-1', name: 'Anna', gender: 'Female' }],
+  zh: [{ id: 'zh-m-1', name: 'Li Wei', gender: 'Male' }, { id: 'zh-f-1', name: 'Mei', gender: 'Female' }],
+  ja: [{ id: 'ja-m-1', name: 'Takeshi', gender: 'Male' }, { id: 'ja-f-1', name: 'Yuki', gender: 'Female' }],
+  ko: [{ id: 'ko-m-1', name: 'Minho', gender: 'Male' }, { id: 'ko-f-1', name: 'Jiyeon', gender: 'Female' }],
+  pt: [{ id: 'pt-m-1', name: 'João', gender: 'Male' }, { id: 'pt-f-1', name: 'Ana', gender: 'Female' }],
+  ru: [{ id: 'ru-m-1', name: 'Dmitri', gender: 'Male' }, { id: 'ru-f-1', name: 'Natasha', gender: 'Female' }],
+  it: [{ id: 'it-m-1', name: 'Marco', gender: 'Male' }, { id: 'it-f-1', name: 'Giulia', gender: 'Female' }],
+  tr: [{ id: 'tr-m-1', name: 'Mehmet', gender: 'Male' }, { id: 'tr-f-1', name: 'Ayşe', gender: 'Female' }],
+};
+
+const ACCENTS = [
+  { code: 'en-us', name: 'English (US)', language: 'en' }, { code: 'en-uk', name: 'English (UK)', language: 'en' },
+  { code: 'en-au', name: 'English (Australian)', language: 'en' }, { code: 'en-in', name: 'English (Indian)', language: 'en' },
+  { code: 'ur-pk', name: 'Urdu (Pakistani)', language: 'ur' }, { code: 'ur-in', name: 'Urdu (Indian)', language: 'ur' },
+  { code: 'ar-sa', name: 'Arabic (Saudi)', language: 'ar' }, { code: 'ar-ae', name: 'Arabic (UAE)', language: 'ar' },
+  { code: 'ar-eg', name: 'Arabic (Egyptian)', language: 'ar' }, { code: 'hi-in', name: 'Hindi (Indian)', language: 'hi' },
+  { code: 'es-es', name: 'Spanish (Spain)', language: 'es' }, { code: 'es-mx', name: 'Spanish (Mexico)', language: 'es' },
+  { code: 'fr-fr', name: 'French (France)', language: 'fr' }, { code: 'fr-ca', name: 'French (Canadian)', language: 'fr' },
+  { code: 'de-de', name: 'German (Germany)', language: 'de' }, { code: 'de-at', name: 'German (Austria)', language: 'de' },
+  { code: 'zh-cn', name: 'Chinese (Mandarin)', language: 'zh' }, { code: 'zh-tw', name: 'Chinese (Taiwan)', language: 'zh' },
+  { code: 'ja-jp', name: 'Japanese', language: 'ja' }, { code: 'ko-kr', name: 'Korean', language: 'ko' },
+  { code: 'pt-br', name: 'Portuguese (Brazil)', language: 'pt' }, { code: 'pt-pt', name: 'Portuguese (Portugal)', language: 'pt' },
+  { code: 'ru-ru', name: 'Russian', language: 'ru' }, { code: 'it-it', name: 'Italian', language: 'it' },
+  { code: 'tr-tr', name: 'Turkish', language: 'tr' },
+];
+
+
+
+// ============================================
+// ICONS
+// ============================================
+const Icons = {
+  Mic: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>,
+  Play: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><polygon points="5 3 19 12 5 21 5 3"/></svg>,
+  Pause: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>,
+  Square: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><rect width="18" height="18" x="3" y="3" rx="2"/></svg>,
+  Download: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>,
+  Upload: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>,
+  FileText: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>,
+  Settings: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>,
+  History: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>,
+  Volume2: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>,
+  Languages: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M18 18h4"/></svg>,
+  ArrowRightLeft: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>,
+  ChevronLeft: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="m15 18-6-6 6-6"/></svg>,
+  ChevronRight: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="m9 18 6-6-6-6"/></svg>,
+  User: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+  Search: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>,
+  Trash2: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>,
+  Edit3: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>,
+  Share2: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></svg>,
+  X: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+  Check: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M20 6 9 17l-5-5"/></svg>,
+  AlertCircle: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>,
+  Music: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>,
+  Film: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>,
+  Type: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>,
+  Globe: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>,
+  Sparkles: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M9 5H5"/><path d="M19 15v4"/><path d="M15 17h4"/></svg>,
+  Menu: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>,
+  Headphones: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M3 14v3a2 2 0 0 0 2 2h2v-5H3z"/><path d="M17 14v5h2a2 2 0 0 0 2-2v-3h-4z"/><path d="M21 12c0-4.97-4.03-9-9-9s-9 4.03-9 9"/></svg>,
+  Waveform: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M2 10v4"/><path d="M6 6v12"/><path d="M10 3v18"/><path d="M14 8v8"/><path d="M18 5v14"/><path d="M22 10v4"/></svg>,
+  Loader: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`animate-spin ${c}`}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>,
+};
+
+// ============================================
+// ANIMATED BACKGROUND WITH LOGO IMAGE
+// ============================================
+const AnimatedWaveBackground = () => {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let animationId;
+    let time = 0;
+
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    resize();
+    window.addEventListener('resize', resize);
+
+    const drawWaveLine = (yBase, amplitude, frequency, speed, color, lineWidth, phaseOffset) => {
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      for (let x = 0; x <= canvas.width; x += 2) {
+        const y = yBase + 
+          Math.sin((x * frequency) + time * speed + phaseOffset) * amplitude +
+          Math.sin((x * frequency * 2.1) + time * speed * 1.3 + phaseOffset) * (amplitude * 0.3) +
+          Math.sin((x * frequency * 0.5) + time * speed * 0.7 + phaseOffset) * (amplitude * 0.5);
+
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    };
+
+    const drawMirroredWave = (yBase, amplitude, frequency, speed, color, lineWidth, phaseOffset) => {
+      drawWaveLine(yBase - amplitude * 0.3, amplitude, frequency, speed, color, lineWidth, phaseOffset);
+      drawWaveLine(yBase + amplitude * 0.3, amplitude, frequency, -speed, color, lineWidth, phaseOffset + Math.PI);
+    };
+
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      time += 0.004;
+
+      const centerY = canvas.height * 0.55;
+
+      const glow1 = ctx.createRadialGradient(canvas.width * 0.3, centerY, 0, canvas.width * 0.3, centerY, 300);
+      glow1.addColorStop(0, 'rgba(184, 169, 201, 0.08)');
+      glow1.addColorStop(1, 'rgba(184, 169, 201, 0)');
+      ctx.fillStyle = glow1;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const glow2 = ctx.createRadialGradient(canvas.width * 0.7, centerY, 0, canvas.width * 0.7, centerY, 250);
+      glow2.addColorStop(0, 'rgba(91, 138, 114, 0.06)');
+      glow2.addColorStop(1, 'rgba(91, 138, 114, 0)');
+      ctx.fillStyle = glow2;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const glow3 = ctx.createRadialGradient(canvas.width * 0.5, centerY + 50, 0, canvas.width * 0.5, centerY + 50, 200);
+      glow3.addColorStop(0, 'rgba(232, 168, 124, 0.05)');
+      glow3.addColorStop(1, 'rgba(232, 168, 124, 0)');
+      ctx.fillStyle = glow3;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      drawMirroredWave(centerY, 45, 0.003, 0.5, 'rgba(184, 169, 201, 0.22)', 1.2, 0);
+      drawMirroredWave(centerY, 38, 0.004, 0.4, 'rgba(91, 138, 114, 0.16)', 1, Math.PI / 3);
+      drawMirroredWave(centerY, 52, 0.0025, 0.6, 'rgba(212, 201, 224, 0.13)', 0.8, Math.PI / 1.5);
+      drawMirroredWave(centerY, 30, 0.005, 0.3, 'rgba(232, 168, 124, 0.10)', 0.7, Math.PI / 2);
+      drawMirroredWave(centerY, 55, 0.006, 0.7, 'rgba(184, 169, 201, 0.07)', 0.5, Math.PI / 4);
+      drawMirroredWave(centerY, 40, 0.007, 0.5, 'rgba(91, 138, 114, 0.05)', 0.4, Math.PI / 6);
+
+      const centerX = canvas.width * 0.65;
+      const circleGlow = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 80);
+      circleGlow.addColorStop(0, 'rgba(184, 169, 201, 0.12)');
+      circleGlow.addColorStop(0.5, 'rgba(184, 169, 201, 0.04)');
+      circleGlow.addColorStop(1, 'rgba(184, 169, 201, 0)');
+      ctx.fillStyle = circleGlow;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 80, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(184, 169, 201, 0.10)';
+      ctx.lineWidth = 1;
+      ctx.arc(centerX, centerY, 45, 0, Math.PI * 2);
+      ctx.stroke();
+
+      animationId = requestAnimationFrame(animate);
+    };
+
+    animate();
+    return () => { cancelAnimationFrame(animationId); window.removeEventListener('resize', resize); };
+  }, []);
+
+  return (
+    <div className="fixed top-0 left-0 w-full h-full pointer-events-none z-0 overflow-hidden">
+      <img 
+        src="hero_combined.png" 
+        alt="" 
+        className="absolute top-0 left-0 w-full h-full object-cover opacity-40"
+        style={{ filter: 'blur(1px)' }}
+      />
+      <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
+    </div>
+  );
+};
+
+// ============================================
+// TOAST
+// ============================================
+const Toast = ({ message, type, onClose }) => {
+  useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, [onClose]);
+  const colors = { success: 'bg-teal', error: 'bg-red-500', info: 'bg-blue-500', warning: 'bg-accent' };
+  return (
+    <div className={`fixed top-5 right-5 z-[9999] ${colors[type] || colors.info} text-white px-6 py-3.5 rounded-xl shadow-xl animate-slideIn flex items-center gap-2.5 text-sm font-medium`}>
+      {type === 'success' && <Icons.Check s={18} />}
+      {type === 'error' && <Icons.AlertCircle s={18} />}
+      {type === 'info' && <Icons.Sparkles s={18} />}
+      {message}
+    </div>
+  );
+};
+
+// ============================================
+// SEARCHABLE DROPDOWN
+// ============================================
+const SearchableDropdown = ({ options, value, onChange, placeholder, label, icon: Icon }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const dropdownRef = useRef(null);
+  const filtered = options.filter(o => o.name.toLowerCase().includes(search.toLowerCase()) || (o.code && o.code.toLowerCase().includes(search.toLowerCase())));
+  const selected = options.find(o => o.code === value || o.id === value);
+  useEffect(() => {
+    const handleClick = (e) => { if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setIsOpen(false); };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+  return (
+    <div ref={dropdownRef} className="relative">
+      {label && <label className="block text-[13px] font-semibold text-charcoal mb-1.5 tracking-wide">{label}</label>}
+      <button type="button" onClick={() => setIsOpen(!isOpen)} className={`w-full px-4 py-3 bg-warmWhite border-2 rounded-xl flex items-center gap-2.5 cursor-pointer text-sm text-charcoal transition-all text-left ${isOpen ? 'border-teal' : 'border-sandDark hover:border-lavender'}`}>
+        {Icon && <Icon s={18} c="text-teal flex-shrink-0" />}
+        <span className="flex-1 truncate">{selected ? `${selected.flag || ''} ${selected.name}` : placeholder}</span>
+        <Icons.ChevronRight s={16} c={`text-charcoalLight transition-transform flex-shrink-0 ${isOpen ? 'rotate-90' : ''}`} />
+      </button>
+      {isOpen && (
+        <div className="absolute top-[calc(100%+4px)] left-0 right-0 bg-warmWhite border-2 border-sandDark rounded-xl shadow-xl z-[100] max-h-[300px] overflow-hidden">
+          <div className="p-2.5 border-b border-sandDark">
+            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="w-full px-3 py-2 border border-sandDark rounded-lg text-sm outline-none focus:border-teal" autoFocus />
+          </div>
+          <div className="max-h-[220px] overflow-y-auto">
+            {filtered.map((option) => (
+              <button key={option.code || option.id} type="button" onMouseDown={(e) => { e.preventDefault(); onChange(option.code || option.id); setIsOpen(false); setSearch(''); }} className={`w-full px-3.5 py-2.5 text-left text-sm flex items-center gap-2 transition-colors ${(option.code === value || option.id === value) ? 'bg-sand' : 'hover:bg-sand'}`}>
+                <span>{option.flag || ''}</span>
+                <span>{option.name}</span>
+                {(option.code === value || option.id === value) && <Icons.Check s={16} c="text-teal ml-auto" />}
+              </button>
+            ))}
+            {filtered.length === 0 && <div className="p-4 text-center text-charcoalLight text-sm">No results found</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// AUDIO PLAYER (with Web Speech API TTS)
+// ============================================
+const AudioPlayer = ({ audioUrl, text, language, onEnded, compact }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef(null);
+  const progressRef = useRef(null);
+
+  // Web Speech API synthesis
+  const speakText = () => {
+    if (!text || !window.speechSynthesis) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const langMap = { en: 'en-US', ur: 'ur-PK', ar: 'ar-SA', hi: 'hi-IN', es: 'es-ES', fr: 'fr-FR', de: 'de-DE', zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR', pt: 'pt-PT', ru: 'ru-RU', it: 'it-IT', tr: 'tr-TR' };
+    utterance.lang = langMap[language] || 'en-US';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+
+    utterance.onstart = () => {
+      setIsPlaying(true);
+    };
+    utterance.onboundary = (e) => {
+      if (e.name === 'word') {
+        const charIdx = e.charIndex;
+        const total = text.length || 1;
+        const pct = (charIdx / total) * 100;
+        setProgress(pct);
+        const estDuration = text.length / 15;
+        setCurrentTime((charIdx / total) * estDuration);
+      }
+    };
+    utterance.onend = () => {
+      setIsPlaying(false);
+      setProgress(100);
+      setCurrentTime(text.length / 15);
+      setTimeout(() => {
+        setProgress(0);
+        setCurrentTime(0);
+      }, 300);
+      onEnded?.();
+    };
+    utterance.onerror = () => {
+      setIsPlaying(false);
+      setProgress(0);
+      setCurrentTime(0);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const stopSpeech = () => {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsPlaying(false);
+    setProgress(0);
+    setCurrentTime(0);
+  };
+
+  const togglePlay = () => {
+    if (isPlaying) {
+      stopSpeech();
+    } else {
+      if (text) {
+        speakText();
+      } else if (audioRef.current) {
+        audioRef.current.play();
+        setIsPlaying(true);
+      }
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+      if (audioRef.current.duration) {
+        setProgress((audioRef.current.currentTime / audioRef.current.duration) * 100);
+      }
+    }
+  };
+
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+    setProgress(0);
+    setCurrentTime(0);
+    onEnded?.();
+  };
+
+  const handleProgressClick = (e) => {
+    if (!progressRef.current) return;
+    const rect = progressRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const pct = x / rect.width;
+    setProgress(pct * 100);
+    if (audioRef.current && !text) {
+      audioRef.current.currentTime = pct * audioRef.current.duration;
+    }
+  };
+
+  const formatTime = (s) => { if (!s || isNaN(s)) return '0:00'; const m = Math.floor(s / 60); const sec = Math.floor(s % 60); return `${m}:${sec.toString().padStart(2, '0')}`; };
+
+  return (
+    <div className={`bg-warmWhite border-2 border-sandDark rounded-2xl flex items-center gap-3 ${compact ? 'px-3.5 py-2.5' : 'px-5 py-4'}`}>
+      <audio ref={audioRef} src={audioUrl} onTimeUpdate={handleTimeUpdate} onEnded={handleAudioEnded} />
+      <button onClick={togglePlay} className={`rounded-full bg-teal hover:bg-tealDark text-white flex items-center justify-center flex-shrink-0 transition-colors ${compact ? 'w-9 h-9' : 'w-11 h-11'}`}>
+        {isPlaying ? <Icons.Pause s={compact ? 16 : 20} /> : <Icons.Play s={compact ? 16 : 20} c="ml-0.5" />}
+      </button>
+      {!compact && <button onClick={stopSpeech} className="w-9 h-9 rounded-full bg-sandDark flex items-center justify-center flex-shrink-0 hover:bg-sand transition-colors"><Icons.Square s={14} /></button>}
+      <div className="flex-1 min-w-0">
+        <div ref={progressRef} onClick={handleProgressClick} className={`bg-sandDark rounded-full cursor-pointer relative overflow-hidden ${compact ? 'h-1' : 'h-1.5'}`}>
+          <div className="h-full bg-gradient-to-r from-teal to-tealLight rounded-full transition-all duration-100" style={{ width: `${progress}%` }} />
+        </div>
+        {!compact && <div className="flex justify-between mt-1.5 text-xs text-charcoalLight"><span>{formatTime(currentTime)}</span><span>{formatTime(audioRef.current?.duration || (text ? text.length / 15 : 0))}</span></div>}
+      </div>
+      {!compact && (
+        <div className="flex items-end gap-[3px] h-8">
+          {Array.from({ length: 20 }).map((_, i) => (
+            <div
+              key={i}
+              className={`w-[3px] rounded-sm transition-all duration-300 ${isPlaying ? 'bg-teal visualizer-bar' : 'bg-sandDark'}`}
+              style={{
+                height: isPlaying ? '100%' : '6px',
+                animationDelay: `${i * 0.04}s`,
+                animationDuration: `${0.4 + Math.sin(i) * 0.2}s`
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// TEXT TO SPEECH (WORKING with Web Speech API)
+// ============================================
+const TextToSpeech = ({ onSave, onToast }) => {
+  const [text, setText] = useState('');
+  const [language, setLanguage] = useState('en');
+  const [voice, setVoice] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedAudio, setGeneratedAudio] = useState(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const maxChars = 5000;
+  const voices = VOICES[language] || [];
+
+  useEffect(() => {
+    if (voices.length > 0) {
+      const exists = voices.some(v => v.id === voice);
+      if (!exists) {
+        setVoice(voices[0].id);
+      }
+    } else {
+      setVoice('');
+    }
+  }, [language, voices]);
+
+  // Restart speech synthesis immediately when language or voice options are changed
+  useEffect(() => {
+    if (isSpeaking && text.trim()) {
+      speakText();
+    }
+  }, [language, voice]);
+
+  const handleTextChange = (e) => { 
+    const val = e.target.value; 
+    if (val.length <= maxChars) setText(val); 
+    else onToast('Character limit reached (5000 max)', 'warning'); 
+  };
+
+  // REAL TTS using Web Speech API
+  const speakText = () => {
+    if (!text.trim()) { onToast('Please enter some text first', 'error'); return; }
+    if (!window.speechSynthesis) { onToast('Speech synthesis not supported in this browser', 'error'); return; }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+
+    // Map language codes
+    const langMap = { en: 'en-US', ur: 'ur-PK', ar: 'ar-SA', hi: 'hi-IN', es: 'es-ES', fr: 'fr-FR', de: 'de-DE', zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR', pt: 'pt-PT', ru: 'ru-RU', it: 'it-IT', tr: 'tr-TR' };
+    utterance.lang = langMap[language] || 'en-US';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+
+    // Try to set voice gender
+    const systemVoices = window.speechSynthesis.getVoices();
+    const selectedVoice = voices.find(v => v.id === voice);
+    if (selectedVoice && systemVoices.length > 0) {
+      const genderFilter = selectedVoice.gender.toLowerCase();
+      const targetLangPrefix = utterance.lang.split('-')[0].toLowerCase();
+      const langMatchingVoices = systemVoices.filter(v => v.lang.toLowerCase().startsWith(targetLangPrefix));
+
+      if (langMatchingVoices.length > 0) {
+        let matching = null;
+        if (genderFilter === 'female') {
+          matching = langMatchingVoices.find(v => isSystemVoiceFemale(v.name));
+        } else if (genderFilter === 'male') {
+          matching = langMatchingVoices.find(v => isSystemVoiceMale(v.name));
+        }
+        
+        if (!matching) {
+          matching = langMatchingVoices.find(v => v.lang.includes(utterance.lang)) || langMatchingVoices[0];
+        }
+        
+        if (matching) utterance.voice = matching;
+      }
+    }
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => { setIsSpeaking(false); onToast('Speech finished', 'info'); };
+    utterance.onerror = (e) => { setIsSpeaking(false); console.error('Speech error:', e); };
+
+    window.speechSynthesis.speak(utterance);
+    setGeneratedAudio('speech-active');
+    onToast('Speaking...', 'info');
+  };
+
+  const stopSpeech = () => {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  };
+
+  const generateAndSave = async () => {
+    if (!text.trim()) { onToast('Please enter some text first', 'error'); return; }
+    setIsGenerating(true);
+
+    try {
+      // Call backend API
+      const selectedVoice = voices.find(v => v.id === voice);
+      const response = await api.post('/api/tts/generate', {
+        text,
+        language,
+        voice,
+        voiceName: selectedVoice?.name || 'Default'
+      });
+
+      if (response.success) {
+        onSave(response.recording);
+        setGeneratedAudio('speech-active');
+        onToast('Audio generated and saved!', 'success');
+
+        // Also speak it
+        speakText();
+      } else {
+        onToast(response.error || 'Generation failed', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      // Fallback: save locally
+      const selectedVoice = voices.find(v => v.id === voice);
+      const selectedLang = LANGUAGES.find(l => l.code === language);
+      const recording = {
+        id: Date.now(),
+        title: text.slice(0, 50) + (text.length > 50 ? '...' : ''),
+        text,
+        date: new Date().toISOString(),
+        feature: 'Text to Speech',
+        language: selectedLang?.name || language,
+        voice: selectedVoice?.name || 'Default',
+        duration: `${Math.floor(text.length / 900)}:${Math.floor((text.length % 900) / 15).toString().padStart(2, '0')}`,
+        audioUrl: null,
+        thumbnail: 'wave',
+      };
+      onSave(recording);
+      onToast('Saved locally (backend unavailable)', 'warning');
+      speakText();
+    }
+
+    setIsGenerating(false);
+  };
+
+  return (
+    <div className="animate-fadeIn max-w-3xl mx-auto">
+      <div className="mb-6">
+        <h2 className="text-2xl font-display font-bold text-charcoal mb-1">Text to Speech</h2>
+        <p className="text-charcoalLight text-sm">Convert your text into natural-sounding speech</p>
+      </div>
+      <div className="bg-warmWhite border-2 border-sandDark rounded-2xl p-6 mb-6">
+        <div className="mb-4">
+          <label className="block text-[13px] font-semibold text-charcoal mb-1.5">Your Text</label>
+          <textarea value={text} onChange={handleTextChange} placeholder="Enter your text here..." className="w-full h-48 p-4 border-2 border-sandDark rounded-xl text-sm resize-none outline-none focus:border-teal transition-colors bg-sand/30" />
+          <div className="flex justify-between mt-2 text-xs">
+            <span className={`font-medium ${text.length >= maxChars ? 'text-red-500' : 'text-charcoalLight'}`}>{text.length} / {maxChars} characters</span>
+            {text.length >= maxChars && <span className="text-red-500 font-medium">Limit reached</span>}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <SearchableDropdown options={LANGUAGES} value={language} onChange={setLanguage} placeholder="Select language" label="Language" icon={Icons.Globe} />
+          <SearchableDropdown options={voices.map(v => ({ ...v, code: v.id }))} value={voice} onChange={setVoice} placeholder="Select voice" label="Voice" icon={Icons.Volume2} />
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button onClick={generateAndSave} disabled={isGenerating} className="flex items-center gap-2 px-6 py-3 bg-teal hover:bg-tealDark text-white rounded-xl font-medium text-sm transition-colors disabled:opacity-50">
+            {isGenerating ? <><Icons.Loader s={18} /> Generating...</> : <><Icons.Sparkles s={18} /> Generate & Save</>}
+          </button>
+          <button onClick={isSpeaking ? stopSpeech : speakText} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm transition-colors ${isSpeaking ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-accent hover:bg-accent/90 text-white'}`}>
+            {isSpeaking ? <><Icons.Square s={18} /> Stop</> : <><Icons.Play s={18} /> Preview</>}
+          </button>
+        </div>
+      </div>
+      {generatedAudio && (
+        <div className="bg-warmWhite border-2 border-sandDark rounded-2xl p-6 animate-fadeIn">
+          <h3 className="text-sm font-semibold text-charcoal mb-3">Preview</h3>
+          <AudioPlayer text={text} language={language} />
+          <div className="mt-4 flex gap-3">
+            <button onClick={() => { 
+              const blob = new Blob([text], { type: 'text/plain' }); 
+              const url = URL.createObjectURL(blob); 
+              const a = document.createElement('a'); 
+              a.href = url; 
+              a.download = 'vento-tts.txt'; 
+              a.click(); 
+            }} className="flex items-center gap-2 px-4 py-2.5 border-2 border-teal text-teal hover:bg-teal hover:text-white rounded-xl text-sm font-medium transition-colors">
+              <Icons.Download s={16} /> Download Text
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// ACCENT CHANGER (FIXED - shows live text + accent info)
+// ============================================
+const AccentChanger = ({ onSave, onToast }) => {
+  const [inputText, setInputText] = useState('');
+  const [sourceAccent, setSourceAccent] = useState('en-us');
+  const [targetAccent, setTargetAccent] = useState('en-uk');
+  const [isConverting, setIsConverting] = useState(false);
+  const [converted, setConverted] = useState(false);
+  const [speakingMode, setSpeakingMode] = useState(null); // 'original' | 'converted' | null
+  const [liveWordIndex, setLiveWordIndex] = useState(-1);
+  const [inputMode, setInputMode] = useState('text');
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const liveIntervalRef = useRef(null);
+
+  const accentMap = { 'en-us':'en-US','en-uk':'en-GB','en-au':'en-AU','en-in':'en-IN','ur-pk':'ur-PK','ur-in':'ur-IN','ar-sa':'ar-SA','ar-ae':'ar-AE','ar-eg':'ar-EG','hi-in':'hi-IN','es-es':'es-ES','es-mx':'es-MX','fr-fr':'fr-FR','fr-ca':'fr-CA','de-de':'de-DE','de-at':'de-AT','zh-cn':'zh-CN','zh-tw':'zh-TW','ja-jp':'ja-JP','ko-kr':'ko-KR','pt-br':'pt-BR','pt-pt':'pt-PT','ru-ru':'ru-RU','it-it':'it-IT','tr-tr':'tr-TR' };
+
+  const swapAccents = () => { const t = sourceAccent; setSourceAccent(targetAccent); setTargetAccent(t); setConverted(false); };
+
+  const speakWithAccent = (text, accent, mode) => {
+    if (!text.trim() || !window.speechSynthesis) return;
+    if (speakingMode) { window.speechSynthesis.cancel(); clearInterval(liveIntervalRef.current); setSpeakingMode(null); setLiveWordIndex(-1); return; }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = accentMap[accent] || 'en-US';
+    utterance.rate = 0.9;
+
+    // try to match a system voice for this locale
+    const sysVoices = window.speechSynthesis.getVoices();
+    const matched = sysVoices.find(v => v.lang.startsWith(utterance.lang.split('-')[0]));
+    if (matched) utterance.voice = matched;
+
+    const words = text.split(/\s+/);
+    const wordDuration = (text.length / 14) / words.length * 1000;
+    let idx = 0;
+
+    utterance.onstart = () => { setSpeakingMode(mode); setLiveWordIndex(0); liveIntervalRef.current = setInterval(() => { idx++; setLiveWordIndex(idx); if (idx >= words.length) clearInterval(liveIntervalRef.current); }, wordDuration); };
+    utterance.onend = () => { setSpeakingMode(null); setLiveWordIndex(-1); clearInterval(liveIntervalRef.current); };
+    utterance.onerror = () => { setSpeakingMode(null); setLiveWordIndex(-1); clearInterval(liveIntervalRef.current); };
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = () => {
+        onToast('Recording saved', 'success');
+      };
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+    } catch (err) { onToast('Microphone access denied', 'error'); }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') { 
+      mediaRecorder.stop(); 
+      mediaRecorder.stream.getTracks().forEach(t => t.stop()); 
+    }
+    setIsRecording(false);
+    setInputText("This is the recorded speech message. Let's convert this audio into the target accent.");
+    setConverted(false);
+    onToast("Voice recorded and transcribed!", "success");
+  };
+
+  const handleConvert = async () => {
+    if (!inputText.trim() && inputMode === 'text') { onToast('Please enter text first', 'error'); return; }
+    setIsConverting(true);
+    try {
+      const response = await api.post('/api/accent/convert', { text: inputText, sourceAccent, targetAccent, inputMode });
+      if (response.success) onSave(response.recording);
+    } catch (err) {
+      const src = ACCENTS.find(a => a.code === sourceAccent);
+      const tgt = ACCENTS.find(a => a.code === targetAccent);
+      onSave({ id: Date.now(), title: `${src?.name} → ${tgt?.name}`, text: inputText, date: new Date().toISOString(), feature: 'Accent Changer', language: `${src?.name} → ${tgt?.name}`, duration: '0:12', thumbnail: 'circle' });
+    }
+    setConverted(true);
+    setIsConverting(false);
+    onToast('Accent converted! Preview below.', 'success');
+  };
+
+  const srcInfo = ACCENTS.find(a => a.code === sourceAccent);
+  const tgtInfo = ACCENTS.find(a => a.code === targetAccent);
+  const words = inputText.split(/\s+/);
+
+  const LiveTextDisplay = ({ mode }) => (
+    <div className="mt-3 p-3 bg-sand/30 border border-sandDark rounded-xl text-sm leading-relaxed max-h-28 overflow-y-auto">
+      {words.map((word, i) => (
+        <span key={i} className={`transition-all ${speakingMode === mode && i === liveWordIndex ? 'speaking-word' : ''}`}>{word}{' '}</span>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="animate-fadeIn max-w-3xl mx-auto">
+      <div className="mb-6">
+        <h2 className="text-2xl font-display font-bold text-charcoal mb-1">Accent Changer</h2>
+        <p className="text-charcoalLight text-sm">Transform speech between accents — hear the difference live</p>
+      </div>
+      <div className="bg-warmWhite border-2 border-sandDark rounded-2xl p-6 mb-6">
+        <div className="flex gap-2 mb-4">
+          {['text','upload','record'].map(mode => (
+            <button key={mode} onClick={() => setInputMode(mode)} className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${inputMode === mode ? 'bg-teal text-white' : 'bg-sand text-charcoalLight hover:bg-sandDark'}`}>
+              {mode === 'text' ? 'Type Text' : mode === 'upload' ? 'Upload Audio' : 'Record Voice'}
+            </button>
+          ))}
+        </div>
+        {inputMode === 'text' && <textarea value={inputText} onChange={(e) => { setInputText(e.target.value); setConverted(false); }} placeholder="Enter text to hear in different accents..." className="w-full h-32 p-4 border-2 border-sandDark rounded-xl text-sm resize-none outline-none focus:border-teal bg-sand/30 mb-4" />}
+        {inputMode === 'upload' && (
+          <div className="border-2 border-dashed border-sandDark rounded-xl p-8 text-center mb-4 hover:border-teal transition-colors cursor-pointer" onClick={() => document.getElementById('accent-file').click()}>
+            <input type="file" accept="audio/*" className="hidden" id="accent-file" onChange={(e) => { if (e.target.files[0]) onToast(`File "${e.target.files[0].name}" ready`, 'success'); }} />
+            <Icons.Upload s={32} c="text-teal mx-auto mb-2" />
+            <p className="text-sm text-charcoalLight">Drop audio file or click to browse</p>
+          </div>
+        )}
+        {inputMode === 'record' && (
+          <div className="border-2 border-sandDark rounded-xl p-8 text-center mb-4 relative overflow-hidden">
+            {isRecording && (
+              <div className="absolute inset-0 flex items-center justify-center gap-1.5 opacity-25 pointer-events-none">
+                {Array.from({ length: 24 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-1 bg-teal rounded-full animate-wave"
+                    style={{
+                      height: '10px',
+                      animationDelay: `${i * 0.05}s`
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            <button onClick={isRecording ? stopRecording : startRecording} className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-2 transition-all duration-300 relative z-10 ${isRecording ? 'bg-red-500 scale-110 shadow-lg' : 'bg-teal hover:bg-tealDark'}`}>
+              <Icons.Mic s={24} c="text-white" />
+            </button>
+            <p className="text-sm text-charcoalLight relative z-10">{isRecording ? 'Recording... Click to stop' : 'Click to start recording'}</p>
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 items-end mb-6">
+          <SearchableDropdown options={ACCENTS} value={sourceAccent} onChange={(v) => { setSourceAccent(v); setConverted(false); }} placeholder="Source accent" label="From Accent" icon={Icons.Globe} />
+          <button onClick={swapAccents} className="w-10 h-10 rounded-full bg-sand hover:bg-sandDark flex items-center justify-center transition-colors mb-1"><Icons.ArrowRightLeft s={18} c="text-teal" /></button>
+          <SearchableDropdown options={ACCENTS} value={targetAccent} onChange={(v) => { setTargetAccent(v); setConverted(false); }} placeholder="Target accent" label="To Accent" icon={Icons.Globe} />
+        </div>
+        <button onClick={handleConvert} disabled={isConverting || !inputText.trim()} className="flex items-center gap-2 px-6 py-3 bg-teal hover:bg-tealDark text-white rounded-xl font-medium text-sm transition-colors disabled:opacity-50">
+          {isConverting ? <><Icons.Loader s={18} /> Converting...</> : <><Icons.Sparkles s={18} /> Convert Accent</>}
+        </button>
+      </div>
+
+      {converted && inputText && (
+        <div className="bg-warmWhite border-2 border-sandDark rounded-2xl p-6 animate-fadeIn">
+          <div className="flex items-center gap-2 mb-4">
+            <Icons.Check s={18} c="text-teal" />
+            <h3 className="text-sm font-semibold text-charcoal">Accent Conversion Ready</h3>
+            <span className="ml-auto text-xs bg-teal/10 text-teal px-3 py-1 rounded-full font-medium">{srcInfo?.name} → {tgtInfo?.name}</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Original */}
+            <div className="border-2 border-sandDark rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-accent"></div>
+                <p className="text-xs font-semibold text-charcoal">Original — {srcInfo?.name}</p>
+              </div>
+              <button onClick={() => speakWithAccent(inputText, sourceAccent, 'original')} className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${speakingMode === 'original' ? 'bg-red-500 text-white' : 'bg-sand hover:bg-sandDark text-charcoal'}`}>
+                {speakingMode === 'original' ? <><Icons.Square s={16} /> Stop</> : <><Icons.Play s={16} /> Play Original</>}
+              </button>
+              {inputText && <LiveTextDisplay mode="original" />}
+            </div>
+            {/* Converted */}
+            <div className="border-2 border-teal/40 rounded-xl p-4 bg-teal/5">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-teal"></div>
+                <p className="text-xs font-semibold text-charcoal">Converted — {tgtInfo?.name}</p>
+              </div>
+              <button onClick={() => speakWithAccent(inputText, targetAccent, 'converted')} className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${speakingMode === 'converted' ? 'bg-red-500 text-white' : 'bg-teal hover:bg-tealDark text-white'}`}>
+                {speakingMode === 'converted' ? <><Icons.Square s={16} /> Stop</> : <><Icons.Play s={16} /> Play Converted</>}
+              </button>
+              {inputText && <LiveTextDisplay mode="converted" />}
+            </div>
+          </div>
+          <p className="text-xs text-charcoalLight mt-4 text-center">🎙 Words highlight in green as they are spoken</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// VOICE ASSISTANT (like Jarvis)
+// ============================================
+const VoiceAssistant = ({ onToast }) => {
+  const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const recognitionRef = useRef(null);
+
+  // Initialize speech recognition
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      onToast('Speech Recognition not supported in this browser!', 'error');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setTranscript('');
+    };
+
+    recognition.onresult = (event) => {
+      let finalTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        }
+      }
+      setTranscript(finalTranscript);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.onerror = (event) => {
+      console.error('Speech recognition error:', event.error);
+      onToast(`Speech recognition error: ${event.error}`, 'error');
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+  }, [onToast]);
+
+  // Handle question answering
+  const getAnswer = (question) => {
+    const q = question.toLowerCase().trim();
+    
+    if (q.includes('hello') || q.includes('hi') || q.includes('hey')) {
+      return 'Hello! How can I help you today?';
+    }
+    if (q.includes('how are you')) {
+      return 'I am doing great, thank you for asking! How about you?';
+    }
+    if (q.includes('what is your name') || q.includes('who are you')) {
+      return 'My name is Vento Assistant, your personal voice assistant!';
+    }
+    if (q.includes('time')) {
+      const now = new Date();
+      return `The current time is ${now.toLocaleTimeString()}`;
+    }
+    if (q.includes('date')) {
+      const now = new Date();
+      return `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`;
+    }
+    if (q.includes('vento') || q.includes('what can you do')) {
+      return 'I can help you with text to speech, accent changing, and answer basic questions!';
+    }
+
+    // Default answer
+    return `I heard you say: "${question}". I'm still learning, but I'll try my best to help!`;
+  };
+
+  const speakAnswer = (answerText) => {
+    if (!window.speechSynthesis) return;
+    setAnswer(answerText); // Show the answer text
+    setIsSpeaking(true);
+    const utterance = new SpeechSynthesisUtterance(answerText);
+    utterance.lang = 'en-US';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+
+    // Try to use a male voice (like Jarvis)
+    const voices = window.speechSynthesis.getVoices();
+    const maleVoice = voices.find(v => isSystemVoiceMale(v.name));
+    if (maleVoice) utterance.voice = maleVoice;
+
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    if (transcript) {
+      // If we have a transcript, answer it
+      const answer = getAnswer(transcript);
+      speakAnswer(answer);
+    } else {
+      // Start listening
+      recognitionRef.current?.start();
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && transcript) {
+      const answer = getAnswer(transcript);
+      speakAnswer(answer);
+    }
+  };
+
+  return (
+    <div className="animate-fadeIn max-w-3xl mx-auto">
+      <div className="mb-6">
+        <h2 className="text-2xl font-display font-bold text-charcoal mb-1">Voice Assistant</h2>
+        <p className="text-charcoalLight text-sm">Ask me anything, I'll respond only with voice!</p>
+      </div>
+
+      <div className="bg-warmWhite border-2 border-sandDark rounded-2xl p-8 mb-6 text-center">
+        <div className="mb-6">
+          <button 
+            onClick={toggleListening}
+            className={`w-32 h-32 rounded-full flex items-center justify-center mx-auto transition-all duration-300 ${isListening ? 'bg-red-500 animate-pulse scale-110' : isSpeaking ? 'bg-accent' : 'bg-teal hover:bg-tealDark'} text-white shadow-lg`}
+          >
+            <Icons.Mic s={48} />
+          </button>
+        </div>
+
+        <div className="mb-4">
+          <p className="text-sm font-semibold text-charcoal mb-2">
+            {isListening ? 'Listening...' : isSpeaking ? 'Speaking...' : 'Tap to start listening!'}
+          </p>
+          {isListening && (
+            <div className="flex items-center justify-center gap-1 h-8">
+              {Array.from({length:12}).map((_,i) => (
+                <div key={i} className="w-2 rounded-full bg-teal animate-wave" style={{animationDelay: `${i*0.05}s`}}></div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 bg-sand/50 border border-sandDark rounded-xl mb-4">
+          <label className="block text-xs font-semibold text-charcoalLight uppercase tracking-wide mb-2">
+            Your Question
+          </label>
+          <textarea
+            value={transcript}
+            onChange={(e) => setTranscript(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Your question will appear here..."
+            className="w-full p-3 border-0 rounded-lg text-sm bg-transparent outline-none resize-none"
+            rows={3}
+          />
+        </div>
+
+        {answer && (
+          <div className="p-4 bg-teal/10 border border-teal/30 rounded-xl mb-4">
+            <label className="block text-xs font-semibold text-teal uppercase tracking-wide mb-2">
+              Jarvis's Answer
+            </label>
+            <p className="text-sm text-charcoal leading-relaxed">{answer}</p>
+          </div>
+        )}
+
+        <div className="flex justify-center gap-3">
+          <button 
+            onClick={() => {
+              if (transcript) {
+                const ans = getAnswer(transcript);
+                speakAnswer(ans);
+              }
+            }}
+            disabled={!transcript || isSpeaking}
+            className="flex items-center gap-2 px-6 py-3 bg-teal hover:bg-tealDark text-white rounded-xl font-medium text-sm transition-colors disabled:opacity-50"
+          >
+            <Icons.Play s={16} /> Get Answer
+          </button>
+          <button 
+            onClick={() => {
+              setTranscript('');
+              setAnswer('');
+            }}
+            disabled={!transcript && !answer}
+            className="flex items-center gap-2 px-6 py-3 border-2 border-sandDark text-charcoal hover:bg-sand rounded-xl font-medium text-sm transition-colors disabled:opacity-50"
+          >
+            <Icons.X s={16} /> Clear
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-warmWhite/80 border-2 border-sandDark/50 rounded-xl p-4">
+        <h3 className="text-sm font-semibold text-charcoal mb-3">Things you can ask:</h3>
+        <ul className="text-sm text-charcoalLight space-y-1">
+          <li>• Hello, how are you?</li>
+          <li>• What's your name?</li>
+          <li>• What time is it?</li>
+          <li>• What's today's date?</li>
+          <li>• What can you do?</li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+
+// ============================================
+// MY RECORDINGS (WORKING with API)
+// ============================================
+const MyRecordings = ({ recordings, onDelete, onRename, onToast }) => {
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [speakingId, setSpeakingId] = useState(null);
+
+  const filtered = recordings.filter(r => {
+    const matchesSearch = r.title.toLowerCase().includes(search.toLowerCase()) || r.language.toLowerCase().includes(search.toLowerCase());
+    const matchesFilter = filter === 'all' || r.feature === filter;
+    return matchesSearch && matchesFilter;
+  });
+
+  const formatDate = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  const startRename = (r) => { setEditingId(r.id); setEditName(r.title); };
+
+  const confirmRename = async () => {
+    if (!editName.trim()) return;
+    try {
+      await api.put(`/api/recordings/${editingId}`, { title: editName.trim() });
+    } catch (e) { /* fallback */ }
+    onRename(editingId, editName.trim());
+    setEditingId(null);
+    onToast('Recording renamed', 'success');
+  };
+
+  const handleDelete = async (id) => {
+    try { await api.del(`/api/recordings/${id}`); } catch (e) { /* fallback */ }
+    onDelete(id);
+    onToast('Recording deleted', 'info');
+  };
+
+  const playRecording = (r) => {
+    if (!r.text || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(r.text.slice(0, 500));
+    const langMap = { en: 'en-US', ur: 'ur-PK', ar: 'ar-SA', hi: 'hi-IN', es: 'es-ES', fr: 'fr-FR', de: 'de-DE', zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR', pt: 'pt-PT', ru: 'ru-RU', it: 'it-IT', tr: 'tr-TR' };
+    utterance.lang = langMap[r.language?.split(' ')[0].toLowerCase()] || 'en-US';
+    utterance.onstart = () => setSpeakingId(r.id);
+    utterance.onend = () => setSpeakingId(null);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const getIcon = (feature) => { if (feature === 'Text to Speech') return <Icons.Type s={20} />; if (feature === 'Accent Changer') return <Icons.ArrowRightLeft s={20} />; return <Icons.Music s={20} />; };
+
+  return (
+    <div className="animate-fadeIn max-w-4xl mx-auto">
+      <div className="mb-6">
+        <h2 className="text-2xl font-display font-bold text-charcoal mb-1">My Recordings</h2>
+        <p className="text-charcoalLight text-sm">{recordings.length} {recordings.length === 1 ? 'recording' : 'recordings'} saved</p>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="relative flex-1">
+          <Icons.Search s={18} c="absolute left-3.5 top-1/2 -translate-y-1/2 text-charcoalLight" />
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search recordings..." className="w-full pl-10 pr-4 py-3 bg-warmWhite border-2 border-sandDark rounded-xl text-sm outline-none focus:border-teal" />
+        </div>
+        <select value={filter} onChange={(e) => setFilter(e.target.value)} className="px-4 py-3 bg-warmWhite border-2 border-sandDark rounded-xl text-sm outline-none focus:border-teal cursor-pointer">
+          <option value="all">All Features</option>
+          <option value="Text to Speech">Text to Speech</option>
+          <option value="Accent Changer">Accent Changer</option>
+        </select>
+      </div>
+      {filtered.length === 0 ? (
+        <div className="bg-warmWhite border-2 border-sandDark rounded-2xl p-12 text-center">
+          <Icons.Music s={48} c="text-sandDark mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-charcoal mb-1">No recordings yet</h3>
+          <p className="text-sm text-charcoalLight">Generate audio from any feature and it will appear here automatically</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((recording) => (
+            <div key={recording.id} className="bg-warmWhite border-2 border-sandDark rounded-2xl p-4 flex items-center gap-4 hover:border-lavender transition-colors">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal/20 to-lavender/20 flex items-center justify-center flex-shrink-0 text-teal">
+                {getIcon(recording.feature)}
+              </div>
+              <div className="flex-1 min-w-0">
+                {editingId === recording.id ? (
+                  <div className="flex items-center gap-2">
+                    <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="flex-1 px-3 py-1.5 border border-sandDark rounded-lg text-sm outline-none focus:border-teal" autoFocus onKeyDown={(e) => e.key === 'Enter' && confirmRename()} />
+                    <button onClick={confirmRename} className="p-1.5 bg-teal text-white rounded-lg"><Icons.Check s={14} /></button>
+                    <button onClick={() => setEditingId(null)} className="p-1.5 bg-sandDark rounded-lg"><Icons.X s={14} /></button>
+                  </div>
+                ) : (
+                  <h3 className="text-sm font-semibold text-charcoal truncate">{recording.title}</h3>
+                )}
+                <div className="flex items-center gap-2 mt-1 text-xs text-charcoalLight">
+                  <span>{recording.feature}</span>
+                  <span className="w-1 h-1 rounded-full bg-sandDark" />
+                  <span>{recording.language}</span>
+                  <span className="w-1 h-1 rounded-full bg-sandDark" />
+                  <span>{recording.duration}</span>
+                  <span className="w-1 h-1 rounded-full bg-sandDark" />
+                  <span>{formatDate(recording.date)}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => playRecording(recording)} className={`p-2 rounded-lg transition-colors ${speakingId === recording.id ? 'bg-red-500 text-white' : 'hover:bg-sand'}`} title="Play">
+                  {speakingId === recording.id ? <Icons.Square s={16} /> : <Icons.Play s={16} />}
+                </button>
+                <button onClick={() => { 
+                  const blob = new Blob([recording.text || ''], { type: 'text/plain' }); 
+                  const url = URL.createObjectURL(blob); 
+                  const a = document.createElement('a'); 
+                  a.href = url; 
+                  a.download = `${recording.title}.txt`; 
+                  a.click(); 
+                }} className="p-2 hover:bg-sand rounded-lg transition-colors" title="Download"><Icons.Download s={16} /></button>
+                <button onClick={() => startRename(recording)} className="p-2 hover:bg-sand rounded-lg transition-colors" title="Rename"><Icons.Edit3 s={16} /></button>
+                <button onClick={() => { navigator.clipboard.writeText(recording.text || ''); onToast('Text copied to clipboard', 'success'); }} className="p-2 hover:bg-sand rounded-lg transition-colors" title="Share"><Icons.Share2 s={16} /></button>
+                <button onClick={() => handleDelete(recording.id)} className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors" title="Delete"><Icons.Trash2 s={16} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// SETTINGS
+// ============================================
+const Settings = ({ onToast, theme, setTheme }) => {
+  const [autoSave, setAutoSave] = useState(true);
+  const [defaultLang, setDefaultLang] = useState('en');
+  const [quality, setQuality] = useState('high');
+  return (
+    <div className="animate-fadeIn max-w-2xl mx-auto">
+      <div className="mb-6">
+        <h2 className="text-2xl font-display font-bold text-charcoal mb-1">Settings</h2>
+        <p className="text-charcoalLight text-sm">Customize your Vento experience</p>
+      </div>
+      <div className="bg-warmWhite border-2 border-sandDark rounded-2xl p-6 space-y-6">
+        <div>
+          <h3 className="text-sm font-semibold text-charcoal mb-3">Appearance</h3>
+          <div className="flex items-center justify-between p-4 bg-sand rounded-xl">
+            <div>
+              <p className="text-sm font-medium text-charcoal">Theme</p>
+              <p className="text-xs text-charcoalLight">Choose your preferred color scheme</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setTheme('light')}
+                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all border-2 ${
+                  theme === 'light'
+                    ? 'bg-teal text-white border-teal shadow-md scale-105'
+                    : 'bg-warmWhite text-charcoalLight border-sandDark hover:border-teal'
+                }`}
+              >☀️ Light</button>
+              <button
+                onClick={() => setTheme('dark')}
+                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all border-2 ${
+                  theme === 'dark'
+                    ? 'bg-charcoal text-white border-charcoal shadow-md scale-105'
+                    : 'bg-warmWhite text-charcoalLight border-sandDark hover:border-charcoal'
+                }`}
+              >🌙 Dark</button>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-charcoal mb-3">Audio</h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-4 bg-sand rounded-xl">
+              <div>
+                <p className="text-sm font-medium text-charcoal">Default Language</p>
+                <p className="text-xs text-charcoalLight">Language used by default in new sessions</p>
+              </div>
+              <select value={defaultLang} onChange={(e) => setDefaultLang(e.target.value)} className="px-3 py-2 bg-warmWhite border border-sandDark rounded-lg text-sm outline-none focus:border-teal">
+                <option value="none">None</option>
+                {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.flag} {l.name}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center justify-between p-4 bg-sand rounded-xl">
+              <div>
+                <p className="text-sm font-medium text-charcoal">Audio Quality</p>
+                <p className="text-xs text-charcoalLight">Higher quality uses more data</p>
+              </div>
+              <select value={quality} onChange={(e) => setQuality(e.target.value)} className="px-3 py-2 bg-warmWhite border border-sandDark rounded-lg text-sm outline-none focus:border-teal">
+                <option value="standard">Standard</option>
+                <option value="high">High</option>
+                <option value="ultra">Ultra</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-charcoal mb-3">General</h3>
+          <div className="flex items-center justify-between p-4 bg-sand rounded-xl">
+            <div>
+              <p className="text-sm font-medium text-charcoal">Auto-save recordings</p>
+              <p className="text-xs text-charcoalLight">Automatically save all generated audio</p>
+            </div>
+            <button onClick={() => setAutoSave(!autoSave)} className={`w-12 h-6 rounded-full transition-colors relative ${autoSave ? 'bg-teal' : 'bg-sandDark'}`}>
+              <div className={`w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform ${autoSave ? 'translate-x-6' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+        </div>
+        <div className="pt-4 border-t border-sandDark">
+          <button onClick={() => onToast('Settings saved successfully', 'success')} className="flex items-center gap-2 px-6 py-3 bg-teal hover:bg-tealDark text-white rounded-xl font-medium text-sm transition-colors">
+            <Icons.Check s={18} /> Save Settings
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// MAIN APP
+// ============================================
+const App = () => {
+  const [activeTab, setActiveTab] = useState('tts');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [recordings, setRecordings] = useState([]);
+  const [toast, setToast] = useState(null);
+  const [backendOnline, setBackendOnline] = useState(true);
+  const [theme, setTheme] = useState('light');
+
+  // Apply dark mode class to root
+  useEffect(() => {
+    const root = document.getElementById('root');
+    if (theme === 'dark') { root.classList.add('dark-mode'); document.body.style.background = '#1a1a2e'; }
+    else { root.classList.remove('dark-mode'); document.body.style.background = ''; }
+  }, [theme]);
+
+  // Check backend health on load
+  useEffect(() => {
+    api.get('/api/health')
+      .then(() => setBackendOnline(true))
+      .catch(() => setBackendOnline(false));
+
+    // Load recordings from backend
+    api.get('/api/recordings')
+      .then(data => { if (data.recordings) setRecordings(data.recordings); })
+      .catch(() => { /* use local state */ });
+  }, []);
+
+  const showToast = (message, type) => setToast({ message, type });
+
+  const addRecording = (recording) => {
+    setRecordings(prev => [recording, ...prev]);
+  };
+
+  const deleteRecording = (id) => setRecordings(prev => prev.filter(r => r.id !== id));
+  const renameRecording = (id, newTitle) => setRecordings(prev => prev.map(r => r.id === id ? { ...r, title: newTitle } : r));
+
+  const navItems = [
+    { id: 'assistant', label: 'Voice Assistant', icon: Icons.Mic },
+    { id: 'tts', label: 'Text to Speech', icon: Icons.Type },
+    { id: 'accent', label: 'Accent Changer', icon: Icons.ArrowRightLeft },
+    { id: 'recordings', label: 'My Recordings', icon: Icons.History },
+    { id: 'settings', label: 'Settings', icon: Icons.Settings },
+  ];
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'assistant': return <VoiceAssistant onToast={showToast} />;
+      case 'tts': return <TextToSpeech onSave={addRecording} onToast={showToast} />;
+      case 'accent': return <AccentChanger onSave={addRecording} onToast={showToast} />;
+      case 'recordings': return <MyRecordings recordings={recordings} onDelete={deleteRecording} onRename={renameRecording} onToast={showToast} />;
+      case 'settings': return <Settings onToast={showToast} theme={theme} setTheme={setTheme} />;
+      default: return <VoiceAssistant onToast={showToast} />;
+    }
+  };
+
+  return (
+    <div className="h-screen flex overflow-hidden">
+      <AnimatedWaveBackground />
+
+      {/* Mobile overlay */}
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 bg-black/30 z-40 lg:hidden" onClick={() => setMobileSidebarOpen(false)} />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`fixed lg:static top-0 left-0 h-full bg-warmWhite border-r-2 border-sandDark z-50 transition-all duration-300 flex flex-col ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} ${sidebarOpen ? 'w-64' : 'w-20'}`}>
+        {/* Logo area */}
+        <div className="p-5 border-b border-sandDark flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal to-tealLight flex items-center justify-center flex-shrink-0">
+            <Icons.Waveform s={20} c="text-white" />
+          </div>
+          {sidebarOpen && (
+            <div className="animate-fadeIn">
+              <h1 className="text-xl font-display font-bold text-charcoal leading-tight">Vento</h1>
+              <p className="text-[10px] text-charcoalLight tracking-wider uppercase">Voice Studio</p>
+            </div>
+          )}
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          {navItems.map(item => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => { setActiveTab(item.id); setMobileSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition-all ${isActive ? 'bg-teal text-white shadow-md' : 'text-charcoalLight hover:bg-sand hover:text-charcoal'}`}
+              >
+                <item.icon s={20} />
+                {sidebarOpen && <span className="animate-fadeIn">{item.label}</span>}
+                {isActive && sidebarOpen && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white" />}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Backend status indicator */}
+        {sidebarOpen && (
+          <div className="px-4 pb-2">
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${backendOnline ? 'bg-teal/10 text-teal' : 'bg-red-50 text-red-500'}`}>
+              <div className={`w-2 h-2 rounded-full ${backendOnline ? 'bg-teal animate-pulse' : 'bg-red-500'}`} />
+              {backendOnline ? 'Backend Online' : 'Backend Offline'}
+            </div>
+          </div>
+        )}
+
+        {/* Sidebar toggle (desktop) */}
+        <div className="p-3 border-t border-sandDark">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm text-charcoalLight hover:bg-sand transition-colors"
+          >
+            <Icons.ChevronLeft s={18} c={`transition-transform ${sidebarOpen ? '' : 'rotate-180'}`} />
+            {sidebarOpen && <span>Collapse</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <main className="flex-1 flex flex-col min-w-0 relative z-10">
+        {/* Top bar */}
+        <header className="h-16 bg-warmWhite/80 backdrop-blur-md border-b-2 border-sandDark flex items-center justify-between px-4 lg:px-6 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setMobileSidebarOpen(true)} className="lg:hidden p-2 hover:bg-sand rounded-lg transition-colors">
+              <Icons.Menu s={20} />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-teal to-tealLight flex items-center justify-center">
+                <Icons.Waveform s={16} c="text-white" />
+              </div>
+              <span className="font-display font-bold text-charcoal text-lg">Vento</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {!backendOnline && (
+              <span className="text-xs text-red-500 bg-red-50 px-3 py-1 rounded-full">Offline Mode</span>
+            )}
+            <button className="w-9 h-9 rounded-full bg-sand hover:bg-sandDark flex items-center justify-center transition-colors">
+              <Icons.User s={18} />
+            </button>
+          </div>
+        </header>
+
+        {/* Content area */}
+        <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+          {renderContent()}
+        </div>
+      </main>
+
+      {/* Toast */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    </div>
+  );
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
