@@ -8,6 +8,8 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 <script>
 tailwind.config = {
@@ -157,6 +159,7 @@ const ACCENTS = [
 // ============================================
 const Icons = {
   Mic: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>,
+  Camera: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>,
   Play: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><polygon points="5 3 19 12 5 21 5 3"/></svg>,
   Pause: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>,
   Square: ({s=20,c}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={c}><rect width="18" height="18" x="3" y="3" rx="2"/></svg>,
@@ -630,6 +633,12 @@ const TextToSpeech = ({ onSave, onToast }) => {
     setIsGenerating(false);
   };
 
+  const [showOCR, setShowOCR] = useState(false);
+
+  const handleOCRScan = (scannedText) => {
+    setText(prev => prev ? prev + ' ' + scannedText : scannedText);
+  };
+
   return (
     <div className="animate-fadeIn max-w-3xl mx-auto">
       <div className="mb-6">
@@ -653,6 +662,7 @@ const TextToSpeech = ({ onSave, onToast }) => {
           <button onClick={generateAndSave} disabled={isGenerating} className="flex items-center gap-2 px-6 py-3 bg-teal hover:bg-tealDark text-white rounded-xl font-medium text-sm transition-colors disabled:opacity-50">
             {isGenerating ? <><Icons.Loader s={18} /> Generating...</> : <><Icons.Sparkles s={18} /> Generate & Save</>}
           </button>
+          <button onClick={() => setShowOCR(true)} className="flex items-center gap-2 px-6 py-3 bg-lavender hover:bg-lavenderLight text-charcoal rounded-xl font-medium text-sm transition-colors"><Icons.Camera s={18} /> Scan Text</button>
           <button onClick={isSpeaking ? stopSpeech : speakText} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm transition-colors ${isSpeaking ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-accent hover:bg-accent/90 text-white'}`}>
             {isSpeaking ? <><Icons.Square s={18} /> Stop</> : <><Icons.Play s={18} /> Preview</>}
           </button>
@@ -681,190 +691,75 @@ const TextToSpeech = ({ onSave, onToast }) => {
 };
 
 // ============================================
-// ACCENT CHANGER (FIXED - shows live text + accent info)
+// CAMERA OCR
 // ============================================
-const AccentChanger = ({ onSave, onToast }) => {
-  const [inputText, setInputText] = useState('');
-  const [sourceAccent, setSourceAccent] = useState('en-us');
-  const [targetAccent, setTargetAccent] = useState('en-uk');
-  const [isConverting, setIsConverting] = useState(false);
-  const [converted, setConverted] = useState(false);
-  const [speakingMode, setSpeakingMode] = useState(null); // 'original' | 'converted' | null
-  const [liveWordIndex, setLiveWordIndex] = useState(-1);
-  const [inputMode, setInputMode] = useState('text');
-  const [isRecording, setIsRecording] = useState(false);
-  const [mediaRecorder, setMediaRecorder] = useState(null);
-  const liveIntervalRef = useRef(null);
+const CameraOCR = ({ onScan, onClose, onToast }) => {
+  const videoRef = React.useRef(null);
+  const canvasRef = React.useRef(null);
+  const [isScanning, setIsScanning] = React.useState(false);
+  const [stream, setStream] = React.useState(null);
 
-  const accentMap = { 'en-us':'en-US','en-uk':'en-GB','en-au':'en-AU','en-in':'en-IN','ur-pk':'ur-PK','ur-in':'ur-IN','ar-sa':'ar-SA','ar-ae':'ar-AE','ar-eg':'ar-EG','hi-in':'hi-IN','es-es':'es-ES','es-mx':'es-MX','fr-fr':'fr-FR','fr-ca':'fr-CA','de-de':'de-DE','de-at':'de-AT','zh-cn':'zh-CN','zh-tw':'zh-TW','ja-jp':'ja-JP','ko-kr':'ko-KR','pt-br':'pt-BR','pt-pt':'pt-PT','ru-ru':'ru-RU','it-it':'it-IT','tr-tr':'tr-TR' };
+  React.useEffect(() => {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(s => {
+        setStream(s);
+        if (videoRef.current) videoRef.current.srcObject = s;
+      })
+      .catch(err => {
+        onToast('Camera access denied or unavailable', 'error');
+        onClose();
+      });
+    return () => {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+    };
+  }, []);
 
-  const swapAccents = () => { const t = sourceAccent; setSourceAccent(targetAccent); setTargetAccent(t); setConverted(false); };
-
-  const speakWithAccent = (text, accent, mode) => {
-    if (!text.trim() || !window.speechSynthesis) return;
-    if (speakingMode) { window.speechSynthesis.cancel(); clearInterval(liveIntervalRef.current); setSpeakingMode(null); setLiveWordIndex(-1); return; }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = accentMap[accent] || 'en-US';
-    utterance.rate = 0.9;
-
-    // try to match a system voice for this locale
-    const sysVoices = window.speechSynthesis.getVoices();
-    const matched = sysVoices.find(v => v.lang.startsWith(utterance.lang.split('-')[0]));
-    if (matched) utterance.voice = matched;
-
-    const words = text.split(/\s+/);
-    const wordDuration = (text.length / 14) / words.length * 1000;
-    let idx = 0;
-
-    utterance.onstart = () => { setSpeakingMode(mode); setLiveWordIndex(0); liveIntervalRef.current = setInterval(() => { idx++; setLiveWordIndex(idx); if (idx >= words.length) clearInterval(liveIntervalRef.current); }, wordDuration); };
-    utterance.onend = () => { setSpeakingMode(null); setLiveWordIndex(-1); clearInterval(liveIntervalRef.current); };
-    utterance.onerror = () => { setSpeakingMode(null); setLiveWordIndex(-1); clearInterval(liveIntervalRef.current); };
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const startRecording = async () => {
+  const handleScan = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    setIsScanning(true);
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      const chunks = [];
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-      recorder.onstop = () => {
-        onToast('Recording saved', 'success');
-      };
-      recorder.start();
-      setMediaRecorder(recorder);
-      setIsRecording(true);
-    } catch (err) { onToast('Microphone access denied', 'error'); }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') { 
-      mediaRecorder.stop(); 
-      mediaRecorder.stream.getTracks().forEach(t => t.stop()); 
-    }
-    setIsRecording(false);
-    setInputText("This is the recorded speech message. Let's convert this audio into the target accent.");
-    setConverted(false);
-    onToast("Voice recorded and transcribed!", "success");
-  };
-
-  const handleConvert = async () => {
-    if (!inputText.trim() && inputMode === 'text') { onToast('Please enter text first', 'error'); return; }
-    setIsConverting(true);
-    try {
-      const response = await api.post('/api/accent/convert', { text: inputText, sourceAccent, targetAccent, inputMode });
-      if (response.success) onSave(response.recording);
+      const result = await window.Tesseract.recognize(canvas.toDataURL('image/png'), 'eng');
+      if (result.data.text.trim()) {
+        onScan(result.data.text);
+        onClose();
+      } else {
+        onToast('No text found. Try again.', 'warning');
+      }
     } catch (err) {
-      const src = ACCENTS.find(a => a.code === sourceAccent);
-      const tgt = ACCENTS.find(a => a.code === targetAccent);
-      onSave({ id: Date.now(), title: `${src?.name} → ${tgt?.name}`, text: inputText, date: new Date().toISOString(), feature: 'Accent Changer', language: `${src?.name} → ${tgt?.name}`, duration: '0:12', thumbnail: 'circle' });
+      onToast('Error scanning text', 'error');
     }
-    setConverted(true);
-    setIsConverting(false);
-    onToast('Accent converted! Preview below.', 'success');
+    setIsScanning(false);
   };
-
-  const srcInfo = ACCENTS.find(a => a.code === sourceAccent);
-  const tgtInfo = ACCENTS.find(a => a.code === targetAccent);
-  const words = inputText.split(/\s+/);
-
-  const LiveTextDisplay = ({ mode }) => (
-    <div className="mt-3 p-3 bg-sand/30 border border-sandDark rounded-xl text-sm leading-relaxed max-h-28 overflow-y-auto">
-      {words.map((word, i) => (
-        <span key={i} className={`transition-all ${speakingMode === mode && i === liveWordIndex ? 'speaking-word' : ''}`}>{word}{' '}</span>
-      ))}
-    </div>
-  );
 
   return (
-    <div className="animate-fadeIn max-w-3xl mx-auto">
-      <div className="mb-6">
-        <h2 className="text-2xl font-display font-bold text-charcoal mb-1">Accent Changer</h2>
-        <p className="text-charcoalLight text-sm">Transform speech between accents — hear the difference live</p>
-      </div>
-      <div className="bg-warmWhite border-2 border-sandDark rounded-2xl p-6 mb-6">
-        <div className="flex gap-2 mb-4">
-          {['text','upload','record'].map(mode => (
-            <button key={mode} onClick={() => setInputMode(mode)} className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${inputMode === mode ? 'bg-teal text-white' : 'bg-sand text-charcoalLight hover:bg-sandDark'}`}>
-              {mode === 'text' ? 'Type Text' : mode === 'upload' ? 'Upload Audio' : 'Record Voice'}
-            </button>
-          ))}
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-warmWhite rounded-2xl p-6 max-w-lg w-full">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-display font-bold text-charcoal">Scan Text</h3>
+          <button onClick={onClose} className="p-2 hover:bg-sand rounded-lg"><Icons.X s={20} /></button>
         </div>
-        {inputMode === 'text' && <textarea value={inputText} onChange={(e) => { setInputText(e.target.value); setConverted(false); }} placeholder="Enter text to hear in different accents..." className="w-full h-32 p-4 border-2 border-sandDark rounded-xl text-sm resize-none outline-none focus:border-teal bg-sand/30 mb-4" />}
-        {inputMode === 'upload' && (
-          <div className="border-2 border-dashed border-sandDark rounded-xl p-8 text-center mb-4 hover:border-teal transition-colors cursor-pointer" onClick={() => document.getElementById('accent-file').click()}>
-            <input type="file" accept="audio/*" className="hidden" id="accent-file" onChange={(e) => { if (e.target.files[0]) onToast(`File "${e.target.files[0].name}" ready`, 'success'); }} />
-            <Icons.Upload s={32} c="text-teal mx-auto mb-2" />
-            <p className="text-sm text-charcoalLight">Drop audio file or click to browse</p>
-          </div>
-        )}
-        {inputMode === 'record' && (
-          <div className="border-2 border-sandDark rounded-xl p-8 text-center mb-4 relative overflow-hidden">
-            {isRecording && (
-              <div className="absolute inset-0 flex items-center justify-center gap-1.5 opacity-25 pointer-events-none">
-                {Array.from({ length: 24 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-1 bg-teal rounded-full animate-wave"
-                    style={{
-                      height: '10px',
-                      animationDelay: `${i * 0.05}s`
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-            <button onClick={isRecording ? stopRecording : startRecording} className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-2 transition-all duration-300 relative z-10 ${isRecording ? 'bg-red-500 scale-110 shadow-lg' : 'bg-teal hover:bg-tealDark'}`}>
-              <Icons.Mic s={24} c="text-white" />
-            </button>
-            <p className="text-sm text-charcoalLight relative z-10">{isRecording ? 'Recording... Click to stop' : 'Click to start recording'}</p>
-          </div>
-        )}
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 items-end mb-6">
-          <SearchableDropdown options={ACCENTS} value={sourceAccent} onChange={(v) => { setSourceAccent(v); setConverted(false); }} placeholder="Source accent" label="From Accent" icon={Icons.Globe} />
-          <button onClick={swapAccents} className="w-10 h-10 rounded-full bg-sand hover:bg-sandDark flex items-center justify-center transition-colors mb-1"><Icons.ArrowRightLeft s={18} c="text-teal" /></button>
-          <SearchableDropdown options={ACCENTS} value={targetAccent} onChange={(v) => { setTargetAccent(v); setConverted(false); }} placeholder="Target accent" label="To Accent" icon={Icons.Globe} />
+        <div className="relative rounded-xl overflow-hidden bg-black aspect-video mb-4">
+          <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+          <canvas ref={canvasRef} className="hidden" />
+          {isScanning && (
+            <div className="absolute inset-0 bg-teal/20 flex flex-col items-center justify-center">
+              <Icons.Loader s={32} c="text-white animate-spin mb-2" />
+              <p className="text-white font-medium">Scanning...</p>
+            </div>
+          )}
         </div>
-        <button onClick={handleConvert} disabled={isConverting || !inputText.trim()} className="flex items-center gap-2 px-6 py-3 bg-teal hover:bg-tealDark text-white rounded-xl font-medium text-sm transition-colors disabled:opacity-50">
-          {isConverting ? <><Icons.Loader s={18} /> Converting...</> : <><Icons.Sparkles s={18} /> Convert Accent</>}
+        <button onClick={handleScan} disabled={isScanning} className="w-full py-3 bg-teal hover:bg-tealDark text-white rounded-xl font-medium transition-colors">
+          Capture & Scan
         </button>
       </div>
-
-      {converted && inputText && (
-        <div className="bg-warmWhite border-2 border-sandDark rounded-2xl p-6 animate-fadeIn">
-          <div className="flex items-center gap-2 mb-4">
-            <Icons.Check s={18} c="text-teal" />
-            <h3 className="text-sm font-semibold text-charcoal">Accent Conversion Ready</h3>
-            <span className="ml-auto text-xs bg-teal/10 text-teal px-3 py-1 rounded-full font-medium">{srcInfo?.name} → {tgtInfo?.name}</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Original */}
-            <div className="border-2 border-sandDark rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 rounded-full bg-accent"></div>
-                <p className="text-xs font-semibold text-charcoal">Original — {srcInfo?.name}</p>
-              </div>
-              <button onClick={() => speakWithAccent(inputText, sourceAccent, 'original')} className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${speakingMode === 'original' ? 'bg-red-500 text-white' : 'bg-sand hover:bg-sandDark text-charcoal'}`}>
-                {speakingMode === 'original' ? <><Icons.Square s={16} /> Stop</> : <><Icons.Play s={16} /> Play Original</>}
-              </button>
-              {inputText && <LiveTextDisplay mode="original" />}
-            </div>
-            {/* Converted */}
-            <div className="border-2 border-teal/40 rounded-xl p-4 bg-teal/5">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 rounded-full bg-teal"></div>
-                <p className="text-xs font-semibold text-charcoal">Converted — {tgtInfo?.name}</p>
-              </div>
-              <button onClick={() => speakWithAccent(inputText, targetAccent, 'converted')} className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${speakingMode === 'converted' ? 'bg-red-500 text-white' : 'bg-teal hover:bg-tealDark text-white'}`}>
-                {speakingMode === 'converted' ? <><Icons.Square s={16} /> Stop</> : <><Icons.Play s={16} /> Play Converted</>}
-              </button>
-              {inputText && <LiveTextDisplay mode="converted" />}
-            </div>
-          </div>
-          <p className="text-xs text-charcoalLight mt-4 text-center">🎙 Words highlight in green as they are spoken</p>
-        </div>
-      )}
+      {showOCR && <CameraOCR onScan={handleOCRScan} onClose={() => setShowOCR(false)} onToast={onToast} />}
     </div>
   );
 };
@@ -942,7 +837,7 @@ const VoiceAssistant = ({ onToast }) => {
       return `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`;
     }
     if (q.includes('vento') || q.includes('what can you do')) {
-      return 'I can help you with text to speech, accent changing, and answer basic questions!';
+      return 'I can help you with text to speech, scanning text, and answer basic questions!';
     }
 
     // Default answer
@@ -1155,7 +1050,7 @@ const MyRecordings = ({ recordings, onDelete, onRename, onToast }) => {
         <select value={filter} onChange={(e) => setFilter(e.target.value)} className="px-4 py-3 bg-warmWhite border-2 border-sandDark rounded-xl text-sm outline-none focus:border-teal cursor-pointer">
           <option value="all">All Features</option>
           <option value="Text to Speech">Text to Speech</option>
-          <option value="Accent Changer">Accent Changer</option>
+          
         </select>
       </div>
       {filtered.length === 0 ? (
@@ -1347,7 +1242,7 @@ const App = () => {
   const navItems = [
     { id: 'assistant', label: 'Voice Assistant', icon: Icons.Mic },
     { id: 'tts', label: 'Text to Speech', icon: Icons.Type },
-    { id: 'accent', label: 'Accent Changer', icon: Icons.ArrowRightLeft },
+    
     { id: 'recordings', label: 'My Recordings', icon: Icons.History },
     { id: 'settings', label: 'Settings', icon: Icons.Settings },
   ];
@@ -1356,7 +1251,7 @@ const App = () => {
     switch (activeTab) {
       case 'assistant': return <VoiceAssistant onToast={showToast} />;
       case 'tts': return <TextToSpeech onSave={addRecording} onToast={showToast} />;
-      case 'accent': return <AccentChanger onSave={addRecording} onToast={showToast} />;
+      
       case 'recordings': return <MyRecordings recordings={recordings} onDelete={deleteRecording} onRename={renameRecording} onToast={showToast} />;
       case 'settings': return <Settings onToast={showToast} theme={theme} setTheme={setTheme} />;
       default: return <VoiceAssistant onToast={showToast} />;

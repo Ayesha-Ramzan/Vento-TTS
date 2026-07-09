@@ -86,43 +86,6 @@ app.post('/api/tts/generate', (req, res) => {
 });
 
 // ============================================
-// ACCENT CHANGER
-// ============================================
-app.post('/api/accent/convert', (req, res) => {
-  const { text, sourceAccent, targetAccent, inputMode } = req.body;
-
-  const id = uuidv4();
-  const srcName = sourceAccent?.split('-')[0].toUpperCase() || 'Source';
-  const tgtName = targetAccent?.split('-')[0].toUpperCase() || 'Target';
-
-  const recording = {
-    id,
-    title: `${srcName} → ${tgtName}`,
-    text: text || '',
-    date: new Date().toISOString(),
-    feature: 'Accent Changer',
-    language: `${srcName} → ${tgtName}`,
-    sourceAccent,
-    targetAccent,
-    duration: '0:12',
-    audioUrl: `/api/recordings/${id}.wav`,
-    thumbnail: 'circle',
-    createdAt: Date.now()
-  };
-
-  recordings.unshift(recording);
-
-  res.json({
-    success: true,
-    recording,
-    originalAudioUrl: `/api/recordings/original-${id}.wav`,
-    convertedAudioUrl: `/api/recordings/converted-${id}.wav`
-  });
-});
-
-
-
-// ============================================
 // RECORDINGS CRUD
 // ============================================
 app.get('/api/recordings', (req, res) => {
@@ -222,38 +185,6 @@ app.get('/api/voices/:language', (req, res) => {
   res.json({ voices: voicesMap[req.params.language] || [] });
 });
 
-app.get('/api/accents', (req, res) => {
-  res.json({
-    accents: [
-      { code: 'en-us', name: 'English (US)', language: 'en' },
-      { code: 'en-uk', name: 'English (UK)', language: 'en' },
-      { code: 'en-au', name: 'English (Australian)', language: 'en' },
-      { code: 'en-in', name: 'English (Indian)', language: 'en' },
-      { code: 'ur-pk', name: 'Urdu (Pakistani)', language: 'ur' },
-      { code: 'ur-in', name: 'Urdu (Indian)', language: 'ur' },
-      { code: 'ar-sa', name: 'Arabic (Saudi)', language: 'ar' },
-      { code: 'ar-ae', name: 'Arabic (UAE)', language: 'ar' },
-      { code: 'ar-eg', name: 'Arabic (Egyptian)', language: 'ar' },
-      { code: 'hi-in', name: 'Hindi (Indian)', language: 'hi' },
-      { code: 'es-es', name: 'Spanish (Spain)', language: 'es' },
-      { code: 'es-mx', name: 'Spanish (Mexico)', language: 'es' },
-      { code: 'fr-fr', name: 'French (France)', language: 'fr' },
-      { code: 'fr-ca', name: 'French (Canadian)', language: 'fr' },
-      { code: 'de-de', name: 'German (Germany)', language: 'de' },
-      { code: 'de-at', name: 'German (Austria)', language: 'de' },
-      { code: 'zh-cn', name: 'Chinese (Mandarin)', language: 'zh' },
-      { code: 'zh-tw', name: 'Chinese (Taiwan)', language: 'zh' },
-      { code: 'ja-jp', name: 'Japanese', language: 'ja' },
-      { code: 'ko-kr', name: 'Korean', language: 'ko' },
-      { code: 'pt-br', name: 'Portuguese (Brazil)', language: 'pt' },
-      { code: 'pt-pt', name: 'Portuguese (Portugal)', language: 'pt' },
-      { code: 'ru-ru', name: 'Russian', language: 'ru' },
-      { code: 'it-it', name: 'Italian', language: 'it' },
-      { code: 'tr-tr', name: 'Turkish', language: 'tr' },
-    ]
-  });
-});
-
 // ============================================
 // HEALTH CHECK
 // ============================================
@@ -268,7 +199,6 @@ app.listen(PORT, () => {
   console.log(`Vento Backend running on http://localhost:${PORT}`);
   console.log(`API endpoints:`);
   console.log(`  POST /api/tts/generate`);
-  console.log(`  POST /api/accent/convert`);
   console.log(`  GET  /api/recordings`);
   console.log(`  GET  /api/languages`);
   console.log(`  GET  /api/health`);

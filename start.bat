@@ -26,3 +26,7 @@ echo Starting Vento Server...
 echo.
 node server.js
 pause
+
+#open in browser
+#npm Start
+#http://localhost:3001
