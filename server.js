@@ -5,6 +5,17 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
+// Try to load OpenAI if available, otherwise use fallback
+let openai = null;
+try {
+  const OpenAI = require('openai');
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY || 'demo-key'
+  });
+} catch (e) {
+  console.log('OpenAI not available, using fallback responses');
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -14,8 +25,8 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Ensure uploads directory exists
-const uploadsDir = '/tmp/uploads';
-const recordingsDir = '/tmp/recordings';
+const uploadsDir = path.join(__dirname, 'tmp', 'uploads');
+const recordingsDir = path.join(__dirname, 'tmp', 'recordings');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 if (!fs.existsSync(recordingsDir)) fs.mkdirSync(recordingsDir, { recursive: true });
 
@@ -183,6 +194,68 @@ app.get('/api/voices/:language', (req, res) => {
     tr: [{ id: 'tr-m-1', name: 'Mehmet', gender: 'Male' }, { id: 'tr-f-1', name: 'Ayşe', gender: 'Female' }],
   };
   res.json({ voices: voicesMap[req.params.language] || [] });
+});
+
+// ============================================
+// LLM ENDPOINT
+// ============================================
+app.post('/api/llm/chat', async (req, res) => {
+  const { question } = req.body;
+
+  if (!question || !question.trim()) {
+    return res.status(400).json({ error: 'Question is required' });
+  }
+
+  try {
+    // If OpenAI is available and we have a real API key, use it
+    if (openai && process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'demo-key') {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: 'You are Vento Assistant, a helpful and friendly voice assistant. Keep your answers concise and easy to understand, suitable for being read aloud.' },
+          { role: 'user', content: question }
+        ],
+        max_tokens: 500
+      });
+      
+      return res.json({ 
+        answer: completion.choices[0].message.content,
+        success: true
+      });
+    }
+
+    // Fallback responses (when OpenAI is not available)
+    const q = question.toLowerCase().trim();
+    let answer;
+
+    if (q.includes('hello') || q.includes('hi') || q.includes('hey')) {
+      answer = 'Hello! How can I help you today?';
+    } else if (q.includes('how are you')) {
+      answer = 'I am doing great, thank you for asking! How about you?';
+    } else if (q.includes('what is your name') || q.includes('who are you')) {
+      answer = 'My name is Vento Assistant, your personal voice assistant!';
+    } else if (q.includes('time')) {
+      const now = new Date();
+      answer = `The current time is ${now.toLocaleTimeString()}`;
+    } else if (q.includes('date')) {
+      const now = new Date();
+      answer = `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`;
+    } else if (q.includes('vento') || q.includes('what can you do')) {
+      answer = 'I can help you with text to speech, scanning text from images, and answering your questions!';
+    } else {
+      answer = `That's an interesting question! I'm still learning, but here's what I think: ${question}. I hope that helps!`;
+    }
+
+    res.json({
+      answer,
+      success: true,
+      note: 'Using fallback responses - add OpenAI API key for better answers'
+    });
+
+  } catch (error) {
+    console.error('LLM Error:', error);
+    res.status(500).json({ error: 'Failed to get answer' });
+  }
 });
 
 // ============================================

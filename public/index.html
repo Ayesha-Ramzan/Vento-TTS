@@ -358,8 +358,24 @@ const AudioPlayer = ({ audioUrl, text, language, onEnded, compact }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [systemVoices, setSystemVoices] = useState([]);
   const audioRef = useRef(null);
   const progressRef = useRef(null);
+
+  // Load system voices
+  useEffect(() => {
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      setSystemVoices(voices);
+    };
+
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, []);
 
   // Web Speech API synthesis
   const speakText = () => {
@@ -367,10 +383,44 @@ const AudioPlayer = ({ audioUrl, text, language, onEnded, compact }) => {
 
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    const langMap = { en: 'en-US', ur: 'ur-PK', ar: 'ar-SA', hi: 'hi-IN', es: 'es-ES', fr: 'fr-FR', de: 'de-DE', zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR', pt: 'pt-PT', ru: 'ru-RU', it: 'it-IT', tr: 'tr-TR' };
-    utterance.lang = langMap[language] || 'en-US';
+    // Better language to locale map with proper accents
+    const langToLocaleMap = {
+      en: 'en-US',
+      ur: 'ur-PK',
+      ar: 'ar-SA',
+      hi: 'hi-IN',
+      es: 'es-ES',
+      fr: 'fr-FR',
+      de: 'de-DE',
+      zh: 'zh-CN',
+      ja: 'ja-JP',
+      ko: 'ko-KR',
+      pt: 'pt-PT',
+      ru: 'ru-RU',
+      it: 'it-IT',
+      tr: 'tr-TR'
+    };
+    utterance.lang = langToLocaleMap[language] || 'en-US';
     utterance.rate = 1;
     utterance.pitch = 1;
+
+    // Try to find a matching voice for this accent/language
+    if (systemVoices.length > 0) {
+      const targetLang = utterance.lang.toLowerCase();
+      
+      // First try exact locale match
+      let matchingVoices = systemVoices.filter(v => v.lang.toLowerCase() === targetLang);
+      
+      // If no exact match, try language prefix
+      if (matchingVoices.length === 0) {
+        const langPrefix = targetLang.split('-')[0];
+        matchingVoices = systemVoices.filter(v => v.lang.toLowerCase().startsWith(langPrefix));
+      }
+      
+      if (matchingVoices.length > 0) {
+        utterance.voice = matchingVoices[0];
+      }
+    }
 
     utterance.onstart = () => {
       setIsPlaying(true);
@@ -499,8 +549,24 @@ const TextToSpeech = ({ onSave, onToast }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedAudio, setGeneratedAudio] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [systemVoices, setSystemVoices] = useState([]);
   const maxChars = 5000;
   const voices = VOICES[language] || [];
+
+  // Load system voices when they become available
+  useEffect(() => {
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      setSystemVoices(voices);
+    };
+
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (voices.length > 0) {
@@ -534,34 +600,59 @@ const TextToSpeech = ({ onSave, onToast }) => {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
 
-    // Map language codes
-    const langMap = { en: 'en-US', ur: 'ur-PK', ar: 'ar-SA', hi: 'hi-IN', es: 'es-ES', fr: 'fr-FR', de: 'de-DE', zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR', pt: 'pt-PT', ru: 'ru-RU', it: 'it-IT', tr: 'tr-TR' };
-    utterance.lang = langMap[language] || 'en-US';
+    // Better language to locale map with proper accents
+    const langToLocaleMap = {
+      en: 'en-US',
+      ur: 'ur-PK',
+      ar: 'ar-SA',
+      hi: 'hi-IN',
+      es: 'es-ES',
+      fr: 'fr-FR',
+      de: 'de-DE',
+      zh: 'zh-CN',
+      ja: 'ja-JP',
+      ko: 'ko-KR',
+      pt: 'pt-PT',
+      ru: 'ru-RU',
+      it: 'it-IT',
+      tr: 'tr-TR'
+    };
+    utterance.lang = langToLocaleMap[language] || 'en-US';
     utterance.rate = 1;
     utterance.pitch = 1;
 
-    // Try to set voice gender
-    const systemVoices = window.speechSynthesis.getVoices();
+    // Try to set voice gender with proper accent matching
     const selectedVoice = voices.find(v => v.id === voice);
     if (selectedVoice && systemVoices.length > 0) {
       const genderFilter = selectedVoice.gender.toLowerCase();
-      const targetLangPrefix = utterance.lang.split('-')[0].toLowerCase();
-      const langMatchingVoices = systemVoices.filter(v => v.lang.toLowerCase().startsWith(targetLangPrefix));
-
-      if (langMatchingVoices.length > 0) {
-        let matching = null;
-        if (genderFilter === 'female') {
-          matching = langMatchingVoices.find(v => isSystemVoiceFemale(v.name));
-        } else if (genderFilter === 'male') {
-          matching = langMatchingVoices.find(v => isSystemVoiceMale(v.name));
-        }
-        
-        if (!matching) {
-          matching = langMatchingVoices.find(v => v.lang.includes(utterance.lang)) || langMatchingVoices[0];
-        }
-        
-        if (matching) utterance.voice = matching;
+      const targetLang = utterance.lang.toLowerCase();
+      
+      // First try exact locale match
+      let matchingVoices = systemVoices.filter(v => v.lang.toLowerCase() === targetLang);
+      
+      // If no exact match, try language prefix
+      if (matchingVoices.length === 0) {
+        const langPrefix = targetLang.split('-')[0];
+        matchingVoices = systemVoices.filter(v => v.lang.toLowerCase().startsWith(langPrefix));
       }
+      
+      // If still nothing, use all voices
+      if (matchingVoices.length === 0) {
+        matchingVoices = [...systemVoices];
+      }
+
+      let finalVoice = null;
+      if (genderFilter === 'female') {
+        finalVoice = matchingVoices.find(v => isSystemVoiceFemale(v.name));
+        if (!finalVoice) finalVoice = matchingVoices[0];
+      } else if (genderFilter === 'male') {
+        finalVoice = matchingVoices.find(v => isSystemVoiceMale(v.name));
+        if (!finalVoice) finalVoice = matchingVoices[0];
+      } else {
+        finalVoice = matchingVoices[0];
+      }
+      
+      if (finalVoice) utterance.voice = finalVoice;
     }
 
     utterance.onstart = () => setIsSpeaking(true);
@@ -680,7 +771,7 @@ const TextToSpeech = ({ onSave, onToast }) => {
           </div>
         </div>
       )}
-      {showOCR && <CameraOCR onScan={handleOCRScan} onClose={() => setShowOCR(false)} onToast={onToast} />}
+      {showOCR && <CameraOCR onScan={handleOCRScan} onClose={() => setShowOCR(false)} onToast={onToast} selectedLanguage={language} />}
     </div>
   );
 };
@@ -688,11 +779,29 @@ const TextToSpeech = ({ onSave, onToast }) => {
 // ============================================
 // CAMERA OCR
 // ============================================
-const CameraOCR = ({ onScan, onClose, onToast }) => {
+const CameraOCR = ({ onScan, onClose, onToast, selectedLanguage }) => {
   const videoRef = React.useRef(null);
   const canvasRef = React.useRef(null);
   const streamRef = React.useRef(null);
   const [isScanning, setIsScanning] = React.useState(false);
+
+  // Map language codes to Tesseract language codes
+  const tesseractLangMap = {
+    'en': 'eng',
+    'ur': 'urd',
+    'ar': 'ara',
+    'hi': 'hin',
+    'es': 'spa',
+    'fr': 'fra',
+    'de': 'deu',
+    'zh': 'chi_sim',
+    'ja': 'jpn',
+    'ko': 'kor',
+    'pt': 'por',
+    'ru': 'rus',
+    'it': 'ita',
+    'tr': 'tur'
+  };
 
   React.useEffect(() => {
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
@@ -719,7 +828,8 @@ const CameraOCR = ({ onScan, onClose, onToast }) => {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     try {
-      const result = await window.Tesseract.recognize(canvas.toDataURL('image/png'), 'eng');
+      const langCode = tesseractLangMap[selectedLanguage] || 'eng';
+      const result = await window.Tesseract.recognize(canvas.toDataURL('image/png'), langCode);
       if (result.data.text.trim()) {
         onScan(result.data.text);
         onClose();
@@ -728,6 +838,7 @@ const CameraOCR = ({ onScan, onClose, onToast }) => {
       }
     } catch (err) {
       onToast('Error scanning text', 'error');
+      console.error('OCR Error:', err);
     }
     setIsScanning(false);
   };
@@ -766,7 +877,24 @@ const VoiceAssistant = ({ onToast }) => {
   const [transcript, setTranscript] = useState('');
   const [answer, setAnswer] = useState('');
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [systemVoices, setSystemVoices] = useState([]);
   const recognitionRef = useRef(null);
+
+  // Load system voices
+  useEffect(() => {
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      setSystemVoices(voices);
+    };
+
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, []);
 
   // Initialize speech recognition
   useEffect(() => {
@@ -809,10 +937,22 @@ const VoiceAssistant = ({ onToast }) => {
     recognitionRef.current = recognition;
   }, [onToast]);
 
-  // Handle question answering
-  const getAnswer = (question) => {
+  // Get answer from API
+  const getAnswerFromAPI = async (question) => {
+    setIsLoading(true);
+    try {
+      const response = await api.post('/api/llm/chat', { question });
+      if (response.success) {
+        return response.answer;
+      }
+    } catch (err) {
+      console.error('API Error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+
+    // Fallback if API fails
     const q = question.toLowerCase().trim();
-    
     if (q.includes('hello') || q.includes('hi') || q.includes('hey')) {
       return 'Hello! How can I help you today?';
     }
@@ -831,11 +971,9 @@ const VoiceAssistant = ({ onToast }) => {
       return `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`;
     }
     if (q.includes('vento') || q.includes('what can you do')) {
-      return 'I can help you with text to speech, scanning text, and answer basic questions!';
+      return 'I can help you with text to speech, scanning text, and answer your questions!';
     }
-
-    // Default answer
-    return `I heard you say: "${question}". I'm still learning, but I'll try my best to help!`;
+    return `That's an interesting question! I'm still learning, but I'll do my best to help.`;
   };
 
   const speakAnswer = (answerText) => {
@@ -848,8 +986,7 @@ const VoiceAssistant = ({ onToast }) => {
     utterance.pitch = 1;
 
     // Try to use a male voice (like Jarvis)
-    const voices = window.speechSynthesis.getVoices();
-    const maleVoice = voices.find(v => isSystemVoiceMale(v.name));
+    const maleVoice = systemVoices.find(v => isSystemVoiceMale(v.name));
     if (maleVoice) utterance.voice = maleVoice;
 
     utterance.onend = () => setIsSpeaking(false);
@@ -858,7 +995,7 @@ const VoiceAssistant = ({ onToast }) => {
     window.speechSynthesis.speak(utterance);
   };
 
-  const toggleListening = () => {
+  const toggleListening = async () => {
     if (isListening) {
       recognitionRef.current?.stop();
       return;
@@ -872,7 +1009,7 @@ const VoiceAssistant = ({ onToast }) => {
 
     if (transcript) {
       // If we have a transcript, answer it
-      const answer = getAnswer(transcript);
+      const answer = await getAnswerFromAPI(transcript);
       speakAnswer(answer);
     } else {
       // Start listening
@@ -880,9 +1017,9 @@ const VoiceAssistant = ({ onToast }) => {
     }
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = async (e) => {
     if (e.key === 'Enter' && transcript) {
-      const answer = getAnswer(transcript);
+      const answer = await getAnswerFromAPI(transcript);
       speakAnswer(answer);
     }
   };
@@ -942,16 +1079,17 @@ const VoiceAssistant = ({ onToast }) => {
 
         <div className="flex justify-center gap-3">
           <button 
-            onClick={() => {
+            onClick={async () => {
               if (transcript) {
-                const ans = getAnswer(transcript);
+                const ans = await getAnswerFromAPI(transcript);
                 speakAnswer(ans);
               }
             }}
-            disabled={!transcript || isSpeaking}
+            disabled={!transcript || isSpeaking || isLoading}
             className="flex items-center gap-2 px-6 py-3 bg-teal hover:bg-tealDark text-white rounded-xl font-medium text-sm transition-colors disabled:opacity-50"
           >
-            <Icons.Play s={16} /> Get Answer
+            {isLoading ? <Icons.Loader s={16} /> : <Icons.Play s={16} />}
+            {isLoading ? ' Thinking...' : ' Get Answer'}
           </button>
           <button 
             onClick={() => {
@@ -1021,8 +1159,27 @@ const MyRecordings = ({ recordings, onDelete, onRename, onToast }) => {
     if (!r.text || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(r.text.slice(0, 500));
-    const langMap = { en: 'en-US', ur: 'ur-PK', ar: 'ar-SA', hi: 'hi-IN', es: 'es-ES', fr: 'fr-FR', de: 'de-DE', zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR', pt: 'pt-PT', ru: 'ru-RU', it: 'it-IT', tr: 'tr-TR' };
-    utterance.lang = langMap[r.language?.split(' ')[0].toLowerCase()] || 'en-US';
+    // Better language to locale map with proper accents
+    const langToLocaleMap = {
+      en: 'en-US',
+      ur: 'ur-PK',
+      ar: 'ar-SA',
+      hi: 'hi-IN',
+      es: 'es-ES',
+      fr: 'fr-FR',
+      de: 'de-DE',
+      zh: 'zh-CN',
+      ja: 'ja-JP',
+      ko: 'ko-KR',
+      pt: 'pt-PT',
+      ru: 'ru-RU',
+      it: 'it-IT',
+      tr: 'tr-TR'
+    };
+    const langKey = r.language?.split(' ')[0].toLowerCase() || 'en';
+    utterance.lang = langToLocaleMap[langKey] || 'en-US';
+    utterance.rate = 1;
+    utterance.pitch = 1;
     utterance.onstart = () => setSpeakingId(r.id);
     utterance.onend = () => setSpeakingId(null);
     window.speechSynthesis.speak(utterance);
